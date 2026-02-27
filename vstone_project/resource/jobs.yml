@@ -1,0 +1,12 @@
+resources:
+  jobs:
+    data_chunking:
+      name: data_chunking
+      tasks:
+        - task_key: data_chunking
+          notebook_task:
+            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/02_data_chunking.py
+            source: WORKSPACE
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
