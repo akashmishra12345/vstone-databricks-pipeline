@@ -1,12 +1,41 @@
 resources:
   jobs:
-    data_chunking:
-      name: data_chunking
+    Bronze_Ingestion:
+      name: Bronze_Ingestion
       tasks:
-        - task_key: data_chunking
+        - task_key: 01_copy_into
           notebook_task:
-            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/02_data_chunking.py
+            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/03_bronze_csv_copyinto.py
             source: WORKSPACE
+          min_retry_interval_millis: 900000
+          disable_auto_optimization: true
+        - task_key: 02_autoloader
+          notebook_task:
+            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/04_bronze_auto_loader
+            source: WORKSPACE
+          min_retry_interval_millis: 900000
+          disable_auto_optimization: true
+        - task_key: 03_XML
+          notebook_task:
+            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/05_bronze_xml_pyspark
+            source: WORKSPACE
+          min_retry_interval_millis: 900000
+          disable_auto_optimization: true
+        - task_key: 04_dlt
+          pipeline_task:
+            pipeline_id: 08ffa4df-876e-4faa-acbf-de95547d7243
+            full_refresh: false
+          min_retry_interval_millis: 900000
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
+      
+    remaining_files:
+      name: remaining_files
+      tasks:
+        - task_key: remaining_files
+          pipeline_task:
+            pipeline_id: a3938d0b-fd49-4e84-a4a9-b85c9ef1a78c
       queue:
         enabled: true
       performance_target: PERFORMANCE_OPTIMIZED
