@@ -32,13 +32,21 @@ def listings_text_bronze():
         .withColumn("load_dt", current_timestamp())
         .withColumn("source_file", lit("1_text.csv"))
     )
-# 2. TABLE: listings_photo_bronze (Comma Separated)
-@dlt.table(name="listings_photo_bronze", table_properties=standard_props)
+# 2. TABLE: listings_photo_bronze (Fixed for CI/CD Pass)
+@dlt.table(
+    name="listings_photo_bronze", 
+    table_properties=standard_props,
+    comment="Bronze: Ingesting photo data with strict CSV parsing to prevent rescued data"
+)
 def listings_photo_bronze():
     return (spark.readStream.format("cloudFiles")
       .option("cloudFiles.format", "csv")
       .option("header", "true")
       .option("pathGlobFilter", "1_photo.csv")
+      # FIX: Adding these options is mandatory to stop data corruption (7.9M rescued rows)
+      .option("escape", '"')      # Handles quotes inside URLs
+      .option("quote", '"')       # Ensures fields are wrapped correctly
+      .option("multiLine", "true") # Important if URLs or tags span multiple lines
       .load(LANDING_PATH)
       .withColumn("load_dt", current_timestamp())
       .withColumn("source_file", lit("1_photo.csv")))
