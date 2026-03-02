@@ -16,7 +16,7 @@ BRONZE = "bronze"
 CHUNKS_PATH = f"/Volumes/{CATALOG}/raw/chunks"
 LANDING_PATH = f"/Volumes/{CATALOG}/raw/landing"
 
-# Updated with your ingestion fixes to ensure consistency
+# Synchronized with DLT Ingestion fixes to ensure CI/CD passes
 TEST_CONFIG = [
     {"name": "listings_csv_copyinto", "src": f"{CHUNKS_PATH}/1_main_chunk_1.csv", "fmt": "csv", "opts": {"header": "true"}},
     {"name": "listings_csv_dlt", "src": f"{CHUNKS_PATH}/1_main_chunk_2.csv", "fmt": "csv", "opts": {"header": "true"}},
@@ -24,17 +24,17 @@ TEST_CONFIG = [
     {"name": "listings_xml_pyspark", "src": f"{CHUNKS_PATH}/1_main_chunk_4.xml", "fmt": "xml", "opts": {"rowTag": "record"}},
     {"name": "listings_text_bronze", "src": f"{LANDING_PATH}/1_text.csv", "fmt": "csv", "opts": {"header": "true", "multiLine": "true", "escape": '"'}},
     
-    # Applied your Ingestion Fix: escape, quote, and multiLine
+    # Applied Ingestion Fix: escape, quote, and multiLine to handle complex URLs
     {"name": "listings_photo_bronze", "src": f"{LANDING_PATH}/1_photo.csv", "fmt": "csv", "opts": {"header": "true", "escape": '"', "quote": '"', "multiLine": "true"}},
     
     {"name": "car_catalog_bronze", "src": f"{LANDING_PATH}/catalogs.csv", "fmt": "csv", "opts": {"header": "true", "sep": ";"}},
     
-    # Applied Geo Fix: ignore whitespaces and sampling ratio
+    # Applied Geo Fix: ignore whitespaces and sampling ratio to stabilize schema
     {"name": "geo_locations_bronze", "src": f"{LANDING_PATH}/final_geografic.csv", "fmt": "csv", "opts": {"header": "true", "ignoreLeadingWhiteSpace": "true", "ignoreTrailingWhiteSpace": "true", "samplingRatio": "1.0"}}
 ]
 
 # =========================
-# TESTS (Logic Synchronized with Ingestion)
+# TESTS
 # =========================
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
@@ -48,11 +48,11 @@ def test_volume_reconciliation(spark, cfg):
     """Volume & Completeness Test (Count Check)"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     
-    # Using your fixed ingestion options to read the raw source
+    # Reading raw source with synchronized ingestion options
     raw_df = spark.read.format(cfg["fmt"]).options(**cfg["opts"]).load(cfg["src"])
     raw_count = raw_df.count()
     
-    # 2. Get Bronze Table Count
+    # Target Bronze Table count
     bronze_count = spark.table(table_fullname).count()
     
     assert raw_count == bronze_count, f"Count mismatch for {cfg['name']}: Raw {raw_count} != Bronze {bronze_count}"
@@ -62,7 +62,7 @@ def test_row_level_integrity(spark, cfg):
     """Detailed Integrity Check using Fingerprinting (SHA-256)"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     
-    # Read source without inferSchema for stable string-based hashing
+    # Stable string-based hashing read
     src_df = spark.read.format(cfg["fmt"]).options(**cfg["opts"]).option("inferSchema", "false").load(cfg["src"])
     brz_df = spark.table(table_fullname)
     
@@ -70,7 +70,6 @@ def test_row_level_integrity(spark, cfg):
     assert len(common_cols) > 0, f"No common columns for {cfg['name']}"
 
     def get_fingerprints(df, columns):
-        # Fingerprinting logic using cast, trim, and null handling
         temp_df = df.select([
             F.coalesce(F.trim(F.col(c).cast("string")), F.lit("")).alias(c) 
             for c in columns
@@ -80,9 +79,8 @@ def test_row_level_integrity(spark, cfg):
     src_fp = get_fingerprints(src_df, common_cols)
     brz_fp = get_fingerprints(brz_df, common_cols)
 
-    # Validate zero mismatches between source and target
     mismatch_total = src_fp.subtract(brz_fp).count() + brz_fp.subtract(src_fp).count()
-    assert mismatch_total == 0, f"Integrity Failure in {cfg['name']}: Data mismatch detected."
+    assert mismatch_total == 0, f"Integrity Failure in {cfg['name']}: Physical data mismatch."
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_metadata_audit_and_schema(spark, cfg):
@@ -91,12 +89,13 @@ def test_metadata_audit_and_schema(spark, cfg):
     df = spark.table(table_fullname)
     cols = df.columns
 
-    # Check for mandatory audit columns
+    # Mandatory Audit Columns Check
     for audit_col in ["load_dt", "source_file"]:
         assert audit_col in cols, f"Missing audit column: {audit_col}"
-        assert df.filter(F.col(audit_col).isNull()).count() == 0, f"Nulls in audit column {audit_col}"
+        assert df.filter(F.col(audit_col).isNull()).count() == 0, f"Nulls found in {audit_col}"
 
-    # Final Verification: Expecting 0 records in rescued data column
+    # Critical Schema Integrity Check
     if "_rescued_data" in cols:
         rescued_count = df.filter(F.col("_rescued_data").isNotNull()).count()
-        assert rescued_count == 0, f"Schema Alert: {rescued_count} records in _rescued_data for {cfg['name']}. Please Full Refresh ingestion."
+        # ALERT: If this fails, the table still contains stale corrupted data
+        assert rescued_count == 0, f"Schema Alert: {rescued_count} records in _rescued_data for {cfg['name']}. ACTION: DLT Full Refresh Required."
