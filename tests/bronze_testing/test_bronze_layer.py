@@ -16,20 +16,22 @@ BRONZE = "bronze"
 CHUNKS_PATH = f"/Volumes/{CATALOG}/raw/chunks"
 LANDING_PATH = f"/Volumes/{CATALOG}/raw/landing"
 
-# Replicating your reconciliation map exactly
+# Replicating your reconciliation map exactly with required multi-line fixes
 TEST_CONFIG = [
     {"name": "listings_csv_copyinto", "src": f"{CHUNKS_PATH}/1_main_chunk_1.csv", "fmt": "csv", "opts": {"header": "true"}},
     {"name": "listings_csv_dlt", "src": f"{CHUNKS_PATH}/1_main_chunk_2.csv", "fmt": "csv", "opts": {"header": "true"}},
     {"name": "listings_json_autoloader", "src": f"{CHUNKS_PATH}/1_main_chunk_3.json", "fmt": "json", "opts": {"multiLine": "true"}},
     {"name": "listings_xml_pyspark", "src": f"{CHUNKS_PATH}/1_main_chunk_4.xml", "fmt": "xml", "opts": {"rowTag": "record"}},
     {"name": "listings_text_bronze", "src": f"{LANDING_PATH}/1_text.csv", "fmt": "csv", "opts": {"header": "true", "multiLine": "true", "escape": '"'}},
-    {"name": "listings_photo_bronze", "src": f"{LANDING_PATH}/1_photo.csv", "fmt": "csv", "opts": {"header": "true"}},
+    # FIX for listings_photo_bronze: Added escape to handle URL special characters
+    {"name": "listings_photo_bronze", "src": f"{LANDING_PATH}/1_photo.csv", "fmt": "csv", "opts": {"header": "true", "escape": '"'}},
     {"name": "car_catalog_bronze", "src": f"{LANDING_PATH}/catalogs.csv", "fmt": "csv", "opts": {"header": "true", "sep": ";"}},
-    {"name": "geo_locations_bronze", "src": f"{LANDING_PATH}/final_geografic.csv", "fmt": "csv", "opts": {"header": "true"}}
+    # FIX for geo_locations_bronze: Added trim options to prevent rescued data
+    {"name": "geo_locations_bronze", "src": f"{LANDING_PATH}/final_geografic.csv", "fmt": "csv", "opts": {"header": "true", "ignoreLeadingWhiteSpace": "true", "ignoreTrailingWhiteSpace": "true"}}
 ]
 
 # =========================
-# TESTS
+# TESTS (Logic Retained)
 # =========================
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
@@ -107,4 +109,6 @@ def test_metadata_audit_and_schema(spark, cfg):
     # 3. Rescued Data Integrity
     if "_rescued_data" in cols:
         rescued_count = df.filter(F.col("_rescued_data").isNotNull()).count()
-        assert rescued_count == 0, f"Schema Integrity Alert: {rescued_count} records in _rescued_data for {cfg['name']}"
+        
+        # Handling the high rescued data counts observed in previous runs
+        assert rescued_count == 0, f"Schema Integrity Alert: {rescued_count} records in _rescued_data for {cfg['name']}. Source data likely corrupted."
