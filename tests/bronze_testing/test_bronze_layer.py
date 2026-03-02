@@ -5,8 +5,9 @@ from pyspark.sql.types import StringType
 from databricks.connect import DatabricksSession
 
 # ======================================================================================
-# GLOBAL WARNING FILTER: Silencing Deprecation and Version Mismatch Warnings
+# GLOBAL WARNING FILTER: Silencing internal library DeprecationWarnings
 # ======================================================================================
+# Ye lines un 6 warnings ko block karengi jo distutils aur pandas version se aa rahi hain
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
 
@@ -66,12 +67,11 @@ def test_metadata_audit_and_schema(spark, cfg):
     if "_rescued_data" in cols:
         rescued_count = df.filter(F.col("_rescued_data").isNotNull()).count()
         if rescued_count > 0:
-            # Using pytest.warns or simple print as we are now ignoring global warnings
             print(f"⚠️ NOTICE: {cfg['name']} has {rescued_count} rescued rows (unnamed CSV columns).")
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_row_level_integrity_flexible(spark, cfg):
-    """Integrity check with Soft-Alerts for high-volume photo tables."""
+    """Integrity check with Soft-Alerts for non-critical tables."""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     src_df = spark.read.format(cfg["fmt"]).options(**cfg["opts"]).option("inferSchema", "false").load(cfg["src"])
     brz_df = spark.table(table_fullname)
