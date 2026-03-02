@@ -16,18 +16,21 @@ BRONZE = "bronze"
 CHUNKS_PATH = f"/Volumes/{CATALOG}/raw/chunks"
 LANDING_PATH = f"/Volumes/{CATALOG}/raw/landing"
 
-# Replicating your reconciliation map exactly with required multi-line fixes
+# Logic remains same, only refined options for Photo and Geo data to eliminate rescued records
 TEST_CONFIG = [
     {"name": "listings_csv_copyinto", "src": f"{CHUNKS_PATH}/1_main_chunk_1.csv", "fmt": "csv", "opts": {"header": "true"}},
     {"name": "listings_csv_dlt", "src": f"{CHUNKS_PATH}/1_main_chunk_2.csv", "fmt": "csv", "opts": {"header": "true"}},
     {"name": "listings_json_autoloader", "src": f"{CHUNKS_PATH}/1_main_chunk_3.json", "fmt": "json", "opts": {"multiLine": "true"}},
     {"name": "listings_xml_pyspark", "src": f"{CHUNKS_PATH}/1_main_chunk_4.xml", "fmt": "xml", "opts": {"rowTag": "record"}},
     {"name": "listings_text_bronze", "src": f"{LANDING_PATH}/1_text.csv", "fmt": "csv", "opts": {"header": "true", "multiLine": "true", "escape": '"'}},
-    # FIX for listings_photo_bronze: Added escape to handle URL special characters
-    {"name": "listings_photo_bronze", "src": f"{LANDING_PATH}/1_photo.csv", "fmt": "csv", "opts": {"header": "true", "escape": '"'}},
+    
+    # ENHANCED FIX for listings_photo_bronze: Added multiLine and quote for long URL strings
+    {"name": "listings_photo_bronze", "src": f"{LANDING_PATH}/1_photo.csv", "fmt": "csv", "opts": {"header": "true", "escape": '"', "quote": '"', "multiLine": "true"}},
+    
     {"name": "car_catalog_bronze", "src": f"{LANDING_PATH}/catalogs.csv", "fmt": "csv", "opts": {"header": "true", "sep": ";"}},
-    # FIX for geo_locations_bronze: Added trim options to prevent rescued data
-    {"name": "geo_locations_bronze", "src": f"{LANDING_PATH}/final_geografic.csv", "fmt": "csv", "opts": {"header": "true", "ignoreLeadingWhiteSpace": "true", "ignoreTrailingWhiteSpace": "true"}}
+    
+    # ENHANCED FIX for geo_locations_bronze: Added samplingRatio to better infer schema for geo-coords
+    {"name": "geo_locations_bronze", "src": f"{LANDING_PATH}/final_geografic.csv", "fmt": "csv", "opts": {"header": "true", "ignoreLeadingWhiteSpace": "true", "ignoreTrailingWhiteSpace": "true", "samplingRatio": "1.0"}}
 ]
 
 # =========================
@@ -70,7 +73,6 @@ def test_row_level_integrity(spark, cfg):
     assert len(common_cols) > 0, f"No common columns for {cfg['name']}"
 
     def get_fingerprints(df, columns):
-        # Normalization logic: Cast to string, Trim, Handle NULLs
         temp_df = df.select([
             F.coalesce(F.trim(F.col(c).cast("string")), F.lit("")).alias(c) 
             for c in columns
@@ -80,7 +82,6 @@ def test_row_level_integrity(spark, cfg):
     src_fp = get_fingerprints(src_df, common_cols)
     brz_fp = get_fingerprints(brz_df, common_cols)
 
-    # Reconciliation using subtract
     missing_in_bronze = src_fp.subtract(brz_fp).count()
     extra_in_bronze = brz_fp.subtract(src_fp).count()
     mismatch_total = missing_in_bronze + extra_in_bronze
@@ -94,21 +95,17 @@ def test_metadata_audit_and_schema(spark, cfg):
     df = spark.table(table_fullname)
     cols = df.columns
 
-    # 1. Russian Character Support for Catalog
     if "car_catalog_bronze" in cfg["name"]:
         russian_cols = [c for c in cols if any(ord(char) > 127 for char in c)]
         assert len(russian_cols) > 0, "No Russian headers found in car_catalog_bronze"
 
-    # 2. Audit Metadata Populated
     expected_audit = ["load_dt", "source_file"]
     for audit_col in expected_audit:
         assert audit_col in cols, f"Missing audit column: {audit_col}"
         null_count = df.filter(F.col(audit_col).isNull()).count()
         assert null_count == 0, f"Audit column {audit_col} has {null_count} nulls in {cfg['name']}"
 
-    # 3. Rescued Data Integrity
     if "_rescued_data" in cols:
+        # Final Verification: Expecting 0 records in rescued data column
         rescued_count = df.filter(F.col("_rescued_data").isNotNull()).count()
-        
-        # Handling the high rescued data counts observed in previous runs
-        assert rescued_count == 0, f"Schema Integrity Alert: {rescued_count} records in _rescued_data for {cfg['name']}. Source data likely corrupted."
+        assert rescued_count == 0, f"Schema Integrity Alert: {rescued_count} records in _rescued_data for {cfg['name']}."
