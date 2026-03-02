@@ -1,15 +1,7 @@
 import pytest
-import warnings
 import pyspark.sql.functions as F
 from pyspark.sql.types import StringType
 from databricks.connect import DatabricksSession
-
-# ======================================================================================
-# GLOBAL WARNING FILTER: Silencing internal library DeprecationWarnings
-# ======================================================================================
-# Ye lines un 6 warnings ko block karengi jo distutils aur pandas version se aa rahi hain
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-warnings.filterwarnings("ignore", message=".*distutils Version classes are deprecated.*")
 
 @pytest.fixture(scope="session")
 def spark():
@@ -41,12 +33,13 @@ TEST_CONFIG = [
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_bronze_table_exists(spark, cfg):
+    """Verify tables are present in Unity Catalog"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     assert spark.catalog.tableExists(table_fullname)
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_volume_reconciliation(spark, cfg):
-    """Essential count check to ensure all files are processed"""
+    """Essential count check to ensure 100% data ingestion"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     raw_df = spark.read.format(cfg["fmt"]).options(**cfg["opts"]).load(cfg["src"])
     raw_count = raw_df.count()
@@ -55,29 +48,32 @@ def test_volume_reconciliation(spark, cfg):
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_metadata_audit_and_schema(spark, cfg):
-    """FLEXIBLE LOGIC: Check for audit columns but only warn for rescued data."""
+    """Governance Audit: load_dt and source_file validation"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     df = spark.table(table_fullname)
     cols = df.columns
 
+    # Strict check for audit columns
     for audit_col in ["load_dt", "source_file"]:
         assert audit_col in cols
         assert df.filter(F.col(audit_col).isNull()).count() == 0
 
+    # Flexible alert for rescued data noise
     if "_rescued_data" in cols:
         rescued_count = df.filter(F.col("_rescued_data").isNotNull()).count()
         if rescued_count > 0:
-            print(f"⚠️ NOTICE: {cfg['name']} has {rescued_count} rescued rows (unnamed CSV columns).")
+            print(f"⚠️ NOTICE: {cfg['name']} has {rescued_count} rescued rows.")
 
 @pytest.mark.parametrize("cfg", TEST_CONFIG)
 def test_row_level_integrity_flexible(spark, cfg):
-    """Integrity check with Soft-Alerts for non-critical tables."""
+    """Data Accuracy Audit: Fingerprinting (SHA-256) validation"""
     table_fullname = f"{CATALOG}.{BRONZE}.{cfg['name']}"
     src_df = spark.read.format(cfg["fmt"]).options(**cfg["opts"]).option("inferSchema", "false").load(cfg["src"])
     brz_df = spark.table(table_fullname)
     common_cols = [c for c in src_df.columns if c in brz_df.columns]
 
     def get_fingerprints(df, columns):
+        # Normalization logic remains unchanged
         return df.select([F.coalesce(F.trim(F.col(c).cast("string")), F.lit("")).alias(c) for c in columns]) \
                  .withColumn("fp", F.sha2(F.concat_ws("||", *columns), 256)).select("fp")
 
@@ -87,7 +83,8 @@ def test_row_level_integrity_flexible(spark, cfg):
     diff_count = src_fp.subtract(brz_fp).count()
     
     if diff_count > 0:
-        print(f"⚠️ INTEGRITY WARNING: {cfg['name']} has {diff_count} mismatched fingerprints.")
+        print(f"⚠️ INTEGRITY WARNING: {cfg['name']} has {diff_count} mismatched rows.")
+        # Soft-alert for high-volume photo table
         if cfg['name'] != 'listings_photo_bronze':
              assert diff_count == 0
     else:

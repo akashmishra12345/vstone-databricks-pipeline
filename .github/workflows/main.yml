@@ -3,11 +3,10 @@ on:
   push:
     branches:
       - feature/bronze-layer
-      # - feature/silver-layer
-      # - feature/gold-layer
   pull_request:
     branches:
       - dev
+
 jobs:
   validate-bundle:
     name: Validate Bundle Configuration
@@ -22,6 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install pyyaml
+
   run-bronze-tests:
     name: Run Bronze Unit Tests
     if: github.ref == 'refs/heads/feature/bronze-layer' || github.base_ref == 'dev' || github.ref == 'refs/heads/dev'
@@ -37,9 +37,11 @@ jobs:
         run: |
           pip uninstall -y pyspark pyspark-connect databricks-connect || true
           pip install pytest pyyaml databricks-connect
+      
+      # FIX: Added '-W ignore::DeprecationWarning' to suppress the version mismatch warnings
       - name: Run unit tests
         run: |
-          pytest tests/bronze_testing/ -v -m "not integration" || echo ":warning:  Unit tests completed (integration tests included)"
+          pytest tests/bronze_testing/ -v -m "not integration" -W ignore::DeprecationWarning
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
