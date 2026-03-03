@@ -1,15 +1,27 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #CSV Ingestion via Delta Live Tables (Chunk 2)
+# MAGIC # Configuration
 
 # COMMAND ----------
 
-# DLT Pipeline Script: 04_bronze_dlt_IDEMPOTENT
-import dlt
-from pyspark.sql.functions import current_timestamp, lit
 
 import dlt
 from pyspark.sql.functions import current_timestamp, lit
+
+CATALOG = spark.conf.get("pipeline.catalog", "vstone_catalog")
+RAW_SCHEMA = spark.conf.get("pipeline.raw_schema", "raw")
+VOLUME = spark.conf.get("pipeline.chunks_volume", "chunks")
+
+# Dynamic Source Path Construction
+INPUT_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{VOLUME}/"
+SOURCE_FILE = "1_main_chunk_2.csv"
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #CSV Ingestion via Delta Live Tables (Chunk 2)
+
+# COMMAND ----------
 
 @dlt.table(
     name="listings_csv_dlt",
@@ -21,14 +33,14 @@ from pyspark.sql.functions import current_timestamp, lit
 )
 def listings_csv_dlt():
     return (
-        # Use .read_stream().format("cloudFiles") explicitly
+        # Auto Loader (Cloud Files) ensures idempotency
         spark.readStream
         .format("cloudFiles")
         .option("cloudFiles.format", "csv")
         .option("header", "true")
-        .option("pathGlobFilter", "1_main_chunk_2.csv")
-        .option("cloudFiles.inferColumnTypes", "false")
-        .load("/Volumes/vstone_catalog/raw/chunks/") # Ensure this path is correct
+        .option("pathGlobFilter", SOURCE_FILE)
+        .option("cloudFiles.inferColumnTypes", "false") # Safety for string ingestion
+        .load(INPUT_PATH) 
         .withColumn("load_dt", current_timestamp())
-        .withColumn("source_file", lit("1_main_chunk_2.csv"))
+        .withColumn("source_file", lit(SOURCE_FILE))
     )

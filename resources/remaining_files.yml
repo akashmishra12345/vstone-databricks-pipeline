@@ -1,0 +1,11 @@
+resources:
+  jobs:
+    remaining_files_job:
+      name: remaining_files_job
+      tasks:
+        - task_key: remaining_files
+          pipeline_task:
+            pipeline_id: b8cae190-f5db-4401-a4b3-9ac7f6da7389
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
