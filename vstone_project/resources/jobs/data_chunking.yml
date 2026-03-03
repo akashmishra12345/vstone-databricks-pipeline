@@ -1,0 +1,10 @@
+resources:
+  jobs:
+    data_chunking:
+      name: data_chunking
+      tasks:
+        - task_key: data_chunking_task
+          notebook_task:
+            # FIX: Path starts from the bundle root 'vstone_project'
+            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/resources/notebooks/data_profiling_and _chunking/02_data_chunking.py
+            source: WORKSPACE
