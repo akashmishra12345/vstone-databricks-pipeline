@@ -1,0 +1,14 @@
+resources:
+  jobs:
+    data_chunking:
+      name: data_chunking
+      tasks:
+        - task_key: data_chunking
+          notebook_task:
+            notebook_path: ../src/setup/02_data_chunking.py
+          environment_key: Default
+          
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "4"

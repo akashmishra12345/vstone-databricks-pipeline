@@ -1,0 +1,5 @@
+variables:
+  catalog:
+    default: "vstone_catalog"
+  bronze_schema:
+    default: "bronze"
