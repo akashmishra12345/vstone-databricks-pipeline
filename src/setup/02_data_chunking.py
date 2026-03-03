@@ -1,13 +1,38 @@
 # Databricks notebook source
-# DBTITLE 1,Cell 1: Data Chunking and Conversion
+# MAGIC %md
+# MAGIC # Widgets & Configuration
+
+# COMMAND ----------
+
 import subprocess, sys, os, shutil
 import pandas as pd
 
-CATALOG = "vstone_catalog"
-LANDING_PATH = f"/Volumes/{CATALOG}/raw/landing"
-CHUNKS_PATH = f"/Volumes/{CATALOG}/raw/chunks"
+# Setup widgets for dynamic execution
+dbutils.widgets.text("project_catalog", "vstone_catalog", "1. Target Catalog Name")
+dbutils.widgets.text("raw_schema", "raw", "2. Raw Schema Name")
+dbutils.widgets.text("landing_volume", "landing", "3. Source Volume (Landing)")
+dbutils.widgets.text("chunks_volume", "chunks", "4. Target Volume (Chunks)")
+
+# Fetch values into variables
+CATALOG = dbutils.widgets.get("project_catalog")
+RAW_SCHEMA = dbutils.widgets.get("raw_schema")
+LANDING_VOL = dbutils.widgets.get("landing_volume")
+CHUNKS_VOL = dbutils.widgets.get("chunks_volume")
+
+# Dynamic Path Construction using Unity Catalog Volumes
+LANDING_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{LANDING_VOL}"
+CHUNKS_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{CHUNKS_VOL}"
 SOURCE_FILE = f"{LANDING_PATH}/1_main.csv"
-UTILITIES = LANDING_PATH
+UTILITIES = LANDING_PATH  # Scripts are stored in the landing volume
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Logic for chunking 
+
+# COMMAND ----------
+
+# Section 2: Logic (Unchanged Processing)
 
 print("Checking input file...")
 if not os.path.exists(SOURCE_FILE):
@@ -56,7 +81,6 @@ result_json = subprocess.run(
     capture_output=True, text=True
 )
 print("csv_to_json.py STDOUT:", result_json.stdout)
-print("csv_to_json.py STDERR:", result_json.stderr)
 if result_json.returncode != 0:
     print("csv_to_json.py failed:", result_json.stderr)
     raise Exception(f"csv_to_json.py failed: {result_json.stderr}")
@@ -71,15 +95,10 @@ chunk4_path = f"{LANDING_PATH}/1_main_chunk_4.csv"
 if not os.path.exists(chunk4_path):
     print(f"ERROR: Input CSV for XML not found: {chunk4_path}")
     raise FileNotFoundError(f"Chunk4 CSV does not exist: {chunk4_path}")
+
 df_chunk4 = pd.read_csv(chunk4_path, encoding="utf-8")
 df_chunk4.columns = [
-    c.strip()
-    .replace(" ", "_")
-    .replace("-", "_")
-    .replace("/", "_")
-    .replace("(", "")
-    .replace(")", "")
-    .replace(".", "_")
+    c.strip().replace(" ", "_").replace("-", "_").replace("/", "_").replace("(", "").replace(")", "").replace(".", "_")
     for c in df_chunk4.columns
 ]
 for col_name in df_chunk4.select_dtypes(include='object').columns:
@@ -90,16 +109,17 @@ for col_name in df_chunk4.select_dtypes(include='object').columns:
             .str.replace('<', '', regex=False)
             .str.replace('>', '', regex=False)
     )
+
 clean_chunk4_path = f"{LANDING_PATH}/1_main_chunk4_clean.csv"
 df_chunk4.to_csv(clean_chunk4_path, index=False, encoding="utf-8")
 print(f"✓ Cleaned chunk4 CSV saved. Columns: {list(df_chunk4.columns)}")
+
 xml_output = f"{LANDING_PATH}/1_main_chunk_4.xml"
 result_xml = subprocess.run(
     [sys.executable, f"{UTILITIES}/csv_to_xml.py", clean_chunk4_path, xml_output],
     capture_output=True, text=True
 )
 print("csv_to_xml.py STDOUT:", result_xml.stdout)
-print("csv_to_xml.py STDERR:", result_xml.stderr)
 if result_xml.returncode != 0:
     print("csv_to_xml.py failed:", result_xml.stderr)
     raise Exception(f"csv_to_xml.py failed: {result_xml.stderr}")
@@ -122,31 +142,8 @@ for src, dst in copy_map.items():
     shutil.copy(src, dst)
     print(f"✓ Copied {os.path.basename(src)} → chunks volume")
 
-# STEP 5: Summary Report
-print("\n=== CHUNK SUMMARY REPORT ===")
-chunk_info = [
-    ("1_main_chunk_1.csv", "CSV", "COPY INTO (full load)"),
-    ("1_main_chunk_2.csv", "CSV", "DLT Auto Loader (incremental)"),
-    ("1_main_chunk_3.json","JSON", "Auto Loader (cloudFiles)"),
-    ("1_main_chunk_4.xml", "XML", "PySpark native XML reader"),
-]
-for fname, fmt, method in chunk_info:
-    path = f"{CHUNKS_PATH}/{fname}"
-    if not os.path.exists(path):
-        print(f"WARNING: Output chunk not found: {path}")
-        continue
-    size = os.path.getsize(path)
-    print(f" {fname:30s} | {fmt:5s} | {method:35s} | {size:>12,} bytes")
-print("\n✓ Data Chunking Job Complete!")
-
-
-# =========================================================================
 # STEP 5: CLEANUP (Delete intermediate files in /landing)
-# =========================================================================
 print("\nCleaning up intermediate files in /landing...")
-
-# Hum un files ko target kar rahe hain jo landing zone mein temporary hain
-# Note: Original '1_main.csv' delete nahi hogi
 files_to_delete = [
     f"{LANDING_PATH}/1_main_chunk_1.csv",
     f"{LANDING_PATH}/1_main_chunk_2.csv",
@@ -165,8 +162,7 @@ for file_path in files_to_delete:
     except Exception as e:
         print(f"   Warning: Could not delete {file_path}: {e}")
 
-# Additional Check: Purge anything with '_chunk_' in landing that isn't the final output
-# This ensures absolute idempotency for the next run
+# Additional Check: Purge anything with '_chunk_' in landing
 for f in os.listdir(LANDING_PATH):
     if "_chunk_" in f and f.endswith(('.csv', '.json', '.xml')):
         try:
@@ -177,6 +173,4 @@ for f in os.listdir(LANDING_PATH):
         except:
             pass
 
-print("\n✓ Pipeline Complete! All processed chunks are safe in /chunks volume.")
-print(f"✓ Landing zone cleaned: {LANDING_PATH}")
-
+print("\n✓ Pipeline Complete! Chunks safe in: {CHUNKS_PATH}")
