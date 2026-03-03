@@ -1,0 +1,17 @@
+resources:
+  jobs:
+    silver_transformation_job:
+      name: silver_transformation_job
+      tasks:
+        - task_key: silver_transformation
+          notebook_task:
+            notebook_path: ../src/silver/08_silver_transformation.py
+            source: WORKSPACE
+          environment_key: Default
+      queue:
+        enabled: true
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "4"
+      performance_target: PERFORMANCE_OPTIMIZED
