@@ -30,7 +30,9 @@ standard_props = {
 
 # COMMAND ----------
 
-# 1. TABLE: listings_text_bronze 
+# Section 2: DLT Table Definitions Logic
+
+# 1. TABLE: listings_text_bronze (Fixed Parsing for Descriptions)
 @dlt.table(name="listings_text_bronze", table_properties=standard_props)
 def listings_text_bronze():
     return (
@@ -38,6 +40,7 @@ def listings_text_bronze():
         .option("cloudFiles.format", "csv")
         .option("header", "true")
         .option("pathGlobFilter", "1_text.csv")
+        # --- CRITICAL PARSING OPTIONS ---
         .option("multiLine", "true")      
         .option("escape", '"')            
         .option("quote", '"')             
@@ -47,40 +50,48 @@ def listings_text_bronze():
         .withColumn("source_file", lit("1_text.csv"))
     )
 
-# 2. TABLE: listings_photo_bronze (Comma Separated)
+# 2. TABLE: listings_photo_bronze (String Ingestion)
 @dlt.table(name="listings_photo_bronze", table_properties=standard_props)
 def listings_photo_bronze():
-    return (spark.readStream.format("cloudFiles")
-      .option("cloudFiles.format", "csv")
-      .option("header", "true")
-      .option("pathGlobFilter", "1_photo.csv")
-      .load(LANDING_PATH)
-      .withColumn("load_dt", current_timestamp())
-      .withColumn("source_file", lit("1_photo.csv")))
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "csv")
+        .option("header", "true")
+        .option("pathGlobFilter", "1_photo.csv")
+        .option("cloudFiles.inferColumnTypes", "false") # Changed to false
+        .load(LANDING_PATH)
+        .withColumn("load_dt", current_timestamp())
+        .withColumn("source_file", lit("1_photo.csv"))
+    )
 
 # 3. TABLE: car_catalog_bronze (Semicolon Separated)
 @dlt.table(name="car_catalog_bronze", table_properties=standard_props)
 def car_catalog_bronze():
-    return (spark.readStream.format("cloudFiles")
-      .option("cloudFiles.format", "csv")
-      .option("sep", ";") 
-      .option("header", "true")
-      .option("pathGlobFilter", "catalogs.csv")
-      .load(LANDING_PATH)
-      .withColumn("load_dt", current_timestamp())
-      .withColumn("source_file", lit("catalogs.csv")))
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "csv")
+        .option("sep", ";") 
+        .option("header", "true")
+        .option("pathGlobFilter", "catalogs.csv")
+        .option("cloudFiles.inferColumnTypes", "false") # Changed to false
+        .load(LANDING_PATH)
+        .withColumn("load_dt", current_timestamp())
+        .withColumn("source_file", lit("catalogs.csv"))
+    )
 
-# 4. TABLE: geo_locations_bronze 
+# 4. TABLE: geo_locations_bronze (Fixed for Row Index)
 @dlt.table(name="geo_locations_bronze", table_properties=standard_props)
 def geo_locations_bronze():
-    return (spark.readStream.format("cloudFiles")
-      .option("cloudFiles.format", "csv")
-      .option("header", "true") 
-      .option("cloudFiles.inferColumnTypes", "true")
-      .option("pathGlobFilter", "final_geografic.csv")
-      .load(LANDING_PATH)
-      .withColumn("load_dt", current_timestamp())
-      .withColumn("source_file", lit("final_geografic.csv")))
+    return (
+        spark.readStream.format("cloudFiles")
+        .option("cloudFiles.format", "csv")
+        .option("header", "true") 
+        .option("cloudFiles.inferColumnTypes", "false") # Changed to false for stability
+        .option("pathGlobFilter", "final_geografic.csv")
+        .load(LANDING_PATH)
+        .withColumn("load_dt", current_timestamp())
+        .withColumn("source_file", lit("final_geografic.csv"))
+    )
 
 # COMMAND ----------
 
