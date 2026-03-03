@@ -11,52 +11,60 @@ resources:
           disable_auto_optimization: true
 
         - task_key: 02_bronze_json
-          depends_on:
-            - task_key: 01_bronze_csv
+          # depends_on:
+          #   - task_key: 01_bronze_csv
           notebook_task:
             notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/04_bronze_auto_loader
           max_retries: 0
 
         - task_key: 03_bronze_xml
-          depends_on:
-            - task_key: 02_bronze_json
+          # depends_on:
+          #   - task_key: 02_bronze_json
           notebook_task:
             notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/05_bronze_xml_pyspark
           max_retries: 0
         
         - task_key: 04_bronze_dlt
-          depends_on:
-            - task_key: 03_bronze_xml
+          # depends_on:
+          #   - task_key: 03_bronze_xml
           pipeline_task:
             pipeline_id: ${resources.pipelines.vstone_bronze_dlt.id} # From your existing DLT setup
             full_refresh: false
         
         - task_key: 05_bronze_reamining_files
           depends_on:
-            - task_key: 04_bronze_dlt
+          #   - task_key: 04_bronze_dlt
+              - task_key: 04_bronze_dlt
+              - task_key: 03_bronze_xml
+              - task_key: 02_bronze_json
+              - task_key: 01_bronze_csv
           pipeline_task:
             pipeline_id: ${resources.pipelines.vstone_remaining_files_dlt.id} # From your existing DLT setup
             full_refresh: false
 
         # --- SILVER LAYER ---
-        - task_key: 05_silver_transfromations
+        - task_key: 06_silver_transfromations
           depends_on:
             - task_key: 05_bronze_reamining_files
+            # - task_key: 04_bronze_dlt
+            # - task_key: 03_bronze_xml
+            # - task_key: 02_bronze_json
+            # - task_key: 01_bronze_csv
           notebook_task:
             notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/08_silver_transformation
           max_retries: 0
 
-        - task_key: 05_silver_time_travel
-          depends_on:
-            - task_key: 05_silver_transfromations
-          notebook_task:
-            notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/09_bussiness_and_delta_timetravel
-          max_retries: 0
+        # - task_key: 05_silver_time_travel
+        #   depends_on:
+        #     - task_key: 05_silver_transfromations
+        #   notebook_task:
+        #     notebook_path: /Workspace/Users/akash.r.mishra@v4c.ai/vstone-databricks-pipeline/vstone_project/src/notebooks/09_bussiness_and_delta_timetravel
+        #   max_retries: 0
 
         # --- GOLD LAYER (DLT) ---
-        - task_key: 06_gold_dlt_pipeline
+        - task_key: 07_gold_dlt_pipeline
           depends_on:
-            - task_key: 05_silver_time_travel
+            - task_key: 06_silver_transfromations
           pipeline_task:
             pipeline_id: ${resources.pipelines.vstone_gold_dlt.id} # From your existing DLT setup
             full_refresh: false
