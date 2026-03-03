@@ -1,0 +1,25 @@
+resources:
+  pipelines:
+    pipeline_car_market_pipeline:
+      name: Car_market_pipeline
+
+      libraries:
+        - notebook:
+            path: ../src/bronze/03_bronze_csv_copyinto.py
+        - notebook:
+            path: ../src/bronze/04_bronze_auto_loader.py
+        - notebook:
+            path: ../src/bronze/05_bronze_xml_pyspark.py
+        - notebook:
+            path: ../src/bronze/06_bronze_dlt.py
+        - notebook:
+            path: ../src/bronze/07_remaining_4_files.py
+        - notebook:
+            path: ../src/silver/08_silver_transformation.py
+        - notebook:
+            path: ../src/gold/10_gold_dlt_model.py
+
+      catalog: ${var.catalog}
+      schema: ${var.bronze_schema}
+      continuous: false
+      serverless: true
