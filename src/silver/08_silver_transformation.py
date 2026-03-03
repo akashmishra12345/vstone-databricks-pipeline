@@ -4,7 +4,6 @@
 
 # COMMAND ----------
 
-# src/notebooks/06_silver_cleansing.py
 import pandas as pd
 from pyspark.sql.functions import pandas_udf, col, current_timestamp, lit, regexp_replace, row_number, trim
 from pyspark.sql.types import StringType
