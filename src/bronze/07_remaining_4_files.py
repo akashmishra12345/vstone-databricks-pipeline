@@ -1,9 +1,19 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC # Configuration
+
+# COMMAND ----------
+
 import dlt
 from pyspark.sql.functions import current_timestamp, lit
 
-# Configuration: Path to your landing zone
-LANDING_PATH = "/Volumes/vstone_catalog/raw/landing/"
+# DLT mein widgets ke bajaye spark.conf.get use hota hai
+CATALOG = spark.conf.get("pipeline.catalog", "vstone_catalog")
+RAW_SCHEMA = spark.conf.get("pipeline.raw_schema", "raw")
+VOLUME = spark.conf.get("pipeline.landing_volume", "landing")
+
+# Dynamic Landing Path Construction based on your catalog explorer
+LANDING_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{VOLUME}/"
 
 # Generic Table Properties to handle Russian headers & special characters
 standard_props = {
@@ -13,7 +23,14 @@ standard_props = {
     "delta.minWriterVersion": "5"
 }
 
-# 1. TABLE: listings_text_bronze (Fixed Parsing for Descriptions)
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # DLT Tables Logic
+
+# COMMAND ----------
+
+# 1. TABLE: listings_text_bronze 
 @dlt.table(name="listings_text_bronze", table_properties=standard_props)
 def listings_text_bronze():
     return (
@@ -21,17 +38,15 @@ def listings_text_bronze():
         .option("cloudFiles.format", "csv")
         .option("header", "true")
         .option("pathGlobFilter", "1_text.csv")
-        
-        # --- CRITICAL PARSING OPTIONS ---
-        .option("multiLine", "true")      # Taaki description ki newlines handle ho sakein
-        .option("escape", '"')            # Taaki description ke andar ke quotes handle hon
-        .option("quote", '"')             # Taaki commas (,) text ka part maane jayein
-        .option("inferSchema", "false")   # Bronze mein hamesha string format best hai
-        
+        .option("multiLine", "true")      
+        .option("escape", '"')            
+        .option("quote", '"')             
+        .option("inferSchema", "false")   
         .load(LANDING_PATH)
         .withColumn("load_dt", current_timestamp())
         .withColumn("source_file", lit("1_text.csv"))
     )
+
 # 2. TABLE: listings_photo_bronze (Comma Separated)
 @dlt.table(name="listings_photo_bronze", table_properties=standard_props)
 def listings_photo_bronze():
@@ -43,25 +58,24 @@ def listings_photo_bronze():
       .withColumn("load_dt", current_timestamp())
       .withColumn("source_file", lit("1_photo.csv")))
 
-# 3. TABLE: car_catalog_bronze (Semicolon Separated - FIXED)
+# 3. TABLE: car_catalog_bronze (Semicolon Separated)
 @dlt.table(name="car_catalog_bronze", table_properties=standard_props)
 def car_catalog_bronze():
     return (spark.readStream.format("cloudFiles")
       .option("cloudFiles.format", "csv")
-      .option("sep", ";") # Handles semicolon delimiter
+      .option("sep", ";") 
       .option("header", "true")
       .option("pathGlobFilter", "catalogs.csv")
       .load(LANDING_PATH)
       .withColumn("load_dt", current_timestamp())
       .withColumn("source_file", lit("catalogs.csv")))
 
-# 4. TABLE: geo_locations_bronze (FIXED for Row Index & Unnamed first comma)
+# 4. TABLE: geo_locations_bronze 
 @dlt.table(name="geo_locations_bronze", table_properties=standard_props)
 def geo_locations_bronze():
     return (spark.readStream.format("cloudFiles")
       .option("cloudFiles.format", "csv")
       .option("header", "true") 
-      # Hum inferColumnTypes use karenge taaki Spark automatic '_c0' ko column maan le
       .option("cloudFiles.inferColumnTypes", "true")
       .option("pathGlobFilter", "final_geografic.csv")
       .load(LANDING_PATH)

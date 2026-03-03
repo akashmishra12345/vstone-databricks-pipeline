@@ -1,0 +1,17 @@
+resources:
+  jobs:
+    copy_into_job:
+      name: copy_into_job
+      tasks:
+        - task_key: copy_into
+          notebook_task:
+            notebook_path: ../src/bronze/03_bronze_csv_copyinto.py
+            source: WORKSPACE
+          environment_key: Default
+      queue:
+        enabled: true
+      environments:
+        - environment_key: Default
+          spec:
+            environment_version: "4"
+      performance_target: PERFORMANCE_OPTIMIZED
