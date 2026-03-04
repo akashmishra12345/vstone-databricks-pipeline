@@ -32,7 +32,7 @@ QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_photo_quarantine"
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation Logic (Code)
+# MAGIC # Transformation Logic 
 
 # COMMAND ----------
 
@@ -70,7 +70,7 @@ df_photos_silver_final = (df_valid_raw
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Audit & Reconciliation Report (Code)
+# MAGIC # Audit & Reconciliation Report 
 
 # COMMAND ----------
 
@@ -137,7 +137,7 @@ def standardize_string_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #Main Transformation & Deduplication (Code)
+# MAGIC #Main Transformation & Deduplication
 
 # COMMAND ----------
 
@@ -177,7 +177,7 @@ df_photos_silver_final = (df_valid_raw
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #Writes & Reconciliation Report (Code)
+# MAGIC #Writes & Reconciliation Report
 
 # COMMAND ----------
 
@@ -261,7 +261,7 @@ def clean_text_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation & Cleaning (Code)
+# MAGIC # Transformation & Cleaning 
 
 # COMMAND ----------
 
@@ -306,7 +306,7 @@ for c in text_cols:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Validation & Writes (Code)
+# MAGIC # Validation & Writes 
 
 # COMMAND ----------
 
@@ -383,7 +383,7 @@ def standardize_geo_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation & Coordinate Validation (Code)
+# MAGIC # Transformation & Coordinate Validation 
 
 # COMMAND ----------
 
@@ -422,7 +422,7 @@ df_quarantine_final = df_geo_prep.join(df_valid_raw, ["city_name"], "left_anti")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Deduplication & Final Writes (Code)
+# MAGIC # Deduplication & Final Writes
 
 # COMMAND ----------
 
