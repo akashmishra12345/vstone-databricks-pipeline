@@ -26,37 +26,60 @@ FILE_PATH = f"/Volumes/{CATALOG}/raw/{VOLUME}/1_main_chunk_1.csv"
 
 # COMMAND ----------
 
-# 1. CREATE TABLE ONLY IF NOT EXISTS (Schema lock)
-spark.sql(f"""
-CREATE TABLE IF NOT EXISTS {TABLE_NAME} (
-    cost STRING, currency STRING, marka STRING, model STRING, year STRING,
-    has_license STRING, place STRING, date STRING, id STRING, engine STRING,
-    power STRING, gear STRING, probeg STRING, sWheel STRING, complectation STRING,
-    transmission STRING, R STRING, G STRING, B STRING,
-    load_dt TIMESTAMP, 
-    source_file STRING
-) USING DELTA
-""")
+from pyspark.sql.functions import current_timestamp, lit
+from pyspark.errors import AnalysisException
 
-# 2. IDEMPOTENT COPY INTO
-spark.sql(f"""
-COPY INTO {TABLE_NAME}
-FROM '{FILE_PATH}'
-FILEFORMAT = CSV
-FORMAT_OPTIONS ('header' = 'true', 'inferSchema' = 'false') 
-COPY_OPTIONS ('mergeSchema' = 'true')
-""")
+print(f" Starting Native PySpark Ingestion for {TABLE_NAME}...")
 
-# 3. SMART Audit Columns Update (ONLY FOR NEW DATA)
-spark.sql(f"""
-UPDATE {TABLE_NAME} 
-SET load_dt = current_timestamp(), source_file = '1_main_chunk_1.csv' 
-WHERE load_dt IS NULL
-""")
+# ======================================================================================
+# 1. READ & ENRICH (In-Memory Processing)
+# ======================================================================================
+FILE_NAME = "1_main_chunk_1.csv"
 
-# 4. Verification Check
+df_csv = spark.read.format("csv") \
+    .option("header", "true") \
+    .option("inferSchema", "false") \
+    .load(FILE_PATH) \
+    .withColumn("load_dt", current_timestamp()) \
+    .withColumn("source_file", lit(FILE_NAME))
+
+# ======================================================================================
+# 2. IDEMPOTENCY CHECK (Serverless-Safe Try/Except Pattern)
+# ======================================================================================
+is_already_loaded = False
+
+try:
+    # Safely attempting to read the table. No blocked catalog API used.
+    existing_df = spark.table(TABLE_NAME)
+    
+    # If table exists, check if our file is already inside
+    loaded_count = existing_df.filter(existing_df.source_file == FILE_NAME).count()
+    
+    if loaded_count > 0:
+        is_already_loaded = True
+        print(f" Idempotency Check: '{FILE_NAME}' has already been loaded. Skipping to prevent duplicates.")
+
+except AnalysisException:
+    # If the table does not exist, Spark throws an AnalysisException. We catch it gracefully.
+    print("ℹ Table does not exist yet. It will be created dynamically.")
+    pass # is_already_loaded remains False
+
+# ======================================================================================
+# 3. WRITE TO DELTA (Auto Schema-Merge & Table Creation)
+# ======================================================================================
+if not is_already_loaded:
+    print(f" Writing data to {TABLE_NAME}...")
+    df_csv.write.format("delta") \
+        .mode("append") \
+        .option("mergeSchema", "true") \
+        .saveAsTable(TABLE_NAME)
+    print(" Data successfully loaded!")
+
+# ======================================================================================
+# 4. VERIFICATION CHECK
+# ======================================================================================
 total_count = spark.table(TABLE_NAME).count()
-print(f" Table {TABLE_NAME} loaded. Total records: {total_count:,}")
+print(f" Table {TABLE_NAME} state verified. Total records: {total_count:,}")
 
 # COMMAND ----------
 
