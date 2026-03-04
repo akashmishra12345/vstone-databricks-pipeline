@@ -4,15 +4,6 @@
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- 1. Wipe the entire schema and all tables inside it
-# MAGIC DROP SCHEMA IF EXISTS vstone_catalog.bronze CASCADE;
-# MAGIC
-# MAGIC -- 2. Recreate the completely empty schema for your pipeline
-# MAGIC CREATE SCHEMA vstone_catalog.bronze;
-
-# COMMAND ----------
-
 import time
 from pyspark.sql.functions import current_timestamp, lit
 
