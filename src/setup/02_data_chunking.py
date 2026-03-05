@@ -32,8 +32,7 @@ UTILITIES = LANDING_PATH  # Scripts are stored in the landing volume
 
 # COMMAND ----------
 
-# Section 2: Logic (Unchanged Processing)
-
+# Section 2: Logic 
 print("Checking input file...")
 if not os.path.exists(SOURCE_FILE):
     print(f"ERROR: Input CSV not found: {SOURCE_FILE}")
