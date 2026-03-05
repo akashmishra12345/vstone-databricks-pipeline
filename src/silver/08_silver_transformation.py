@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Widgets & Configuration(Text Data)
+# MAGIC # Widgets & Configuration
 
 # COMMAND ----------
 
@@ -19,80 +19,96 @@ CATALOG = dbutils.widgets.get("project_catalog")
 BRONZE = dbutils.widgets.get("bronze_schema")
 SILVER = dbutils.widgets.get("silver_schema")
 
-# Define Dynamic Table Names for listings text layer
-BRONZE_TABLE = f"{CATALOG}.{BRONZE}.listings_text_bronze"
-SILVER_TABLE = f"{CATALOG}.{SILVER}.listings_text_silver"
-QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_text_quarantine"
+# Dependency check: ensure all required bronze tables exist before proceeding
+required_bronze = [
+    "listings_csv_copyinto", "listings_json_autoloader",
+    "listings_xml_pyspark"
+]
+existing_tables = [r.tableName for r in spark.sql(f"SHOW TABLES IN {CATALOG}.{BRONZE}").collect()]
+missing = [t for t in required_bronze if t not in existing_tables]
+if missing:
+    raise Exception(
+        f"DEPENDENCY CHECK FAILED. Run bronze pipelines first.\nMissing tables: {missing}"
+    )
+print(f"All {len(required_bronze)} bronze dependencies verified.")
 
-# Define Dynamic Table Names for listings photo layer (override previous)
-BRONZE_TABLE = f"{CATALOG}.{BRONZE}.listings_photo_bronze"
-SILVER_TABLE = f"{CATALOG}.{SILVER}.listings_photo_silver"
-QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_photo_quarantine"
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation Logic 
+# MAGIC # Text Data Transformations
 
 # COMMAND ----------
 
-# Section 2: Fixed Photo Transformation Logic
+# TEXT LAYER: Table configuration
+BRONZE_TABLE = f"{CATALOG}.{BRONZE}.listings_text_bronze"
+SILVER_TABLE = f"{CATALOG}.{SILVER}.listings_text_silver"
+QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_text_quarantine"
 
-# 1. BRONZE LOAD: Listings Photo Data
-df_photos_bronze = spark.table(BRONZE_TABLE)
-bronze_total = df_photos_bronze.count()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Transformation Logic
+
+# COMMAND ----------
+
+# Section 2: Text Transformation Logic
+
+# 1. BRONZE LOAD: Listings Text Data
+df_text_bronze = spark.table(BRONZE_TABLE)
+bronze_total = df_text_bronze.count()
 
 # 2. INITIAL TRANSFORMATIONS & CASTING
-# FIXED: Removed 'text' column processing as it doesn't exist in photo table
-df_photos_prep = df_photos_bronze.withColumn(
-    # Clean listing_id: handles float strings and potential nulls
+df_text_prep = df_text_bronze.withColumn(
     "listing_id", col("id").cast("double").cast("long").cast("string")
 ).withColumn(
-    "source_file", lit("1_photo.csv")
+    "source_file", lit("1_text.csv")
 ).withColumn(
     "silver_load_dt", current_timestamp()
-).drop("id", "_c0", "_rescued_data") # CLEANUP: Dropping raw/metadata columns
+).drop("id", "_c0", "_rescued_data")
 
 # 3. STRICT SPLIT: Valid vs Malformed
-df_invalid = df_photos_prep.filter(col("listing_id").isNull())
-df_valid_raw = df_photos_prep.filter(col("listing_id").isNotNull())
+df_invalid = df_text_prep.filter(col("listing_id").isNull())
+df_valid_raw = df_text_prep.filter(col("listing_id").isNotNull())
 
-# 4. DEDUPLICATION (By Listing ID + URL)
-# Deduplicate by listing_id and photo_url, keeping the latest by load_dt
-window_spec = Window.partitionBy("listing_id", "photo_url").orderBy(col("load_dt").desc())
+# 4. DEDUPLICATION (By Listing ID)
+# Deduplicate by listing_id, keeping the latest by load_dt
+window_spec = Window.partitionBy("listing_id").orderBy(col("load_dt").desc())
 
-df_photos_silver_final = (df_valid_raw
+df_text_silver_final = (df_valid_raw
     .withColumn("rn", row_number().over(window_spec))
     .filter(col("rn") == 1)
     .drop("rn")
 )
 
+
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Audit & Reconciliation Report 
+# MAGIC ## Audit & Reconciliation Report
 
 # COMMAND ----------
 
-# Section 3: Final Writes & Report
+# Section 3: Final Writes & Report (Text)
 
-# Write deduplicated valid photo records to Silver table
-df_photos_silver_final.write.format("delta").mode("overwrite").option("overwriteSchema", "true") \
+# Write deduplicated valid text records to Silver table
+df_text_silver_final.write.format("delta").mode("overwrite").option("overwriteSchema", "true") \
     .saveAsTable(SILVER_TABLE)
 
-# Prepare and write malformed photo records to Quarantine table
-df_quarantine_final = df_invalid.withColumn("quarantine_reason", lit("malformed_id_in_photo_data"))
+# Prepare and write malformed text records to Quarantine table
+df_quarantine_final = df_invalid.withColumn("quarantine_reason", lit("malformed_id_in_text_data"))
 
 df_quarantine_final.write.format("delta").mode("append").option("mergeSchema", "true") \
     .saveAsTable(QUARANTINE_TABLE)
 
-# Audit Report: reconciliation counts for bronze, silver, quarantine, and dropped duplicates
-silver_cnt = df_photos_silver_final.count()
+# Audit Report
+silver_cnt = df_text_silver_final.count()
 quarantine_cnt = df_quarantine_final.count()
 duplicates_cnt = df_valid_raw.count() - silver_cnt
 
 print(f"\n{'='*45}")
-print(f" PHOTO LAYER RECONCILIATION")
+print(f" TEXT LAYER RECONCILIATION")
 print(f"{'='*45}")
 print(f"1. Bronze Total       : {bronze_total:,}")
 print(f"2. Silver (Final)     : {silver_cnt:,}")
@@ -100,6 +116,7 @@ print(f"3. Quarantine         : {quarantine_cnt:,}")
 print(f"4. Dropped Duplicates : {duplicates_cnt:,}")
 print(f"{'='*45}")
 print(f"Verification: {silver_cnt + quarantine_cnt + duplicates_cnt:,} (Matches Bronze)")
+
 
 # COMMAND ----------
 
@@ -109,39 +126,38 @@ print(f"Verification: {silver_cnt + quarantine_cnt + duplicates_cnt:,} (Matches 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Photo transformations
+# MAGIC # Photo Transformations
 
 # COMMAND ----------
 
-# Section 1: Configuration & UDFs
+# PHOTO LAYER: Table configuration
+BRONZE_TABLE = f"{CATALOG}.{BRONZE}.listings_photo_bronze"
+SILVER_TABLE = f"{CATALOG}.{SILVER}.listings_photo_silver"
+QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_photo_quarantine"
+
+
+# COMMAND ----------
+
+# Section 1: Configuration & UDFs (Photo)
 import pandas as pd
 from pyspark.sql.functions import col, current_timestamp, lit, row_number, pandas_udf, trim
 from pyspark.sql.types import StringType
 from pyspark.sql.window import Window
-
-# Widget values are fetched elsewhere; variables CATALOG, BRONZE, SILVER assumed defined
-# CATALOG = dbutils.widgets.get("project_catalog")
-# BRONZE = dbutils.widgets.get("bronze_schema")
-# SILVER = dbutils.widgets.get("silver_schema")
-
-# Dynamic table names for photo layer processing
-BRONZE_TABLE = f"{CATALOG}.{BRONZE}.listings_photo_bronze"
-SILVER_TABLE = f"{CATALOG}.{SILVER}.listings_photo_silver"
-QUARANTINE_TABLE = f"{CATALOG}.{SILVER}.listings_photo_quarantine"
 
 # Pandas UDF for string standardization (lowercase, trimmed) to improve deduplication and joins
 @pandas_udf(StringType())
 def standardize_string_pd(s: pd.Series) -> pd.Series:
     return s.astype(str).str.strip().str.lower()
 
+
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #Main Transformation & Deduplication
+# MAGIC ## Main Transformation & Deduplication
 
 # COMMAND ----------
 
-# Section 2: Transformations, Splitting & Deduplication
+# Section 2: Transformations, Splitting & Deduplication (Photo)
 
 # 1. BRONZE LOAD: Load raw photo records from Bronze table
 df_photos_bronze = spark.table(BRONZE_TABLE)
@@ -174,14 +190,15 @@ df_photos_silver_final = (df_valid_raw
     .drop("rn")
 )
 
+
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #Writes & Reconciliation Report
+# MAGIC ## Writes & Reconciliation Report
 
 # COMMAND ----------
 
-# Section 3: Final Writes & Audit
+# Section 3: Final Writes & Audit (Photo)
 
 # Write deduplicated valid photo records to Silver table
 df_photos_silver_final.write.format("delta").mode("overwrite").option("overwriteSchema", "true") \
@@ -208,6 +225,7 @@ print(f"4. Dropped Duplicates : {duplicates_cnt:,}")
 print(f"{'='*45}")
 print(f"Verification: {silver_cnt + quarantine_cnt + duplicates_cnt:,} (Must match Bronze)")
 
+
 # COMMAND ----------
 
 # MAGIC %sql
@@ -216,12 +234,12 @@ print(f"Verification: {silver_cnt + quarantine_cnt + duplicates_cnt:,} (Must mat
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Catalogs transformations
+# MAGIC # Catalogs Transformations
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Widgets & Dependencies
+# MAGIC ## Widgets & Dependencies
 
 # COMMAND ----------
 
@@ -261,7 +279,7 @@ def clean_text_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation & Cleaning 
+# MAGIC ## Transformation & Cleaning
 
 # COMMAND ----------
 
@@ -306,7 +324,7 @@ for c in text_cols:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Validation & Writes 
+# MAGIC ## Validation & Writes
 
 # COMMAND ----------
 
@@ -356,7 +374,7 @@ print(f"Check: {silver_cnt + quarantine_cnt + dups_cnt:,} == {bronze_total:,} (T
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Geo locations transformations
+# MAGIC # Geo Locations Transformations
 
 # COMMAND ----------
 
@@ -383,7 +401,7 @@ def standardize_geo_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Transformation & Coordinate Validation 
+# MAGIC ## Transformation & Coordinate Validation
 
 # COMMAND ----------
 
@@ -422,7 +440,7 @@ df_quarantine_final = df_geo_prep.join(df_valid_raw, ["city_name"], "left_anti")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Deduplication & Final Writes
+# MAGIC ## Deduplication & Final Writes
 
 # COMMAND ----------
 
@@ -466,7 +484,7 @@ print(f"Check: {silver_cnt + quarantine_cnt + duplicates_cnt:,} (Must match Bron
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Main file(transformations) 
+# MAGIC # Main File (Transformations)
 
 # COMMAND ----------
 
@@ -499,7 +517,7 @@ def standardize_text_pd(s: pd.Series) -> pd.Series:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Union, Transformation & Deduplication 
+# MAGIC ## Union, Transformation & Deduplication
 
 # COMMAND ----------
 
@@ -563,7 +581,7 @@ df_final_deduped = (df_silver_prep
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Business Rules & Final Partitioned Writes
+# MAGIC ## Business Rules & Final Partitioned Writes
 
 # COMMAND ----------
 
