@@ -1,5 +1,4 @@
 # Databricks notebook source
-
 # Setup widgets for dynamic execution
 dbutils.widgets.text("project_catalog", "vstone_catalog", "1. Target Catalog Name")
 dbutils.widgets.text("bronze_schema", "bronze", "2. Bronze Schema Name")
@@ -21,57 +20,43 @@ FILE_PATH = f"/Volumes/{CATALOG}/raw/{VOLUME}/1_main_chunk_1.csv"
 
 # COMMAND ----------
 
-from pyspark.sql.functions import current_timestamp, lit
-from pyspark.errors import AnalysisException
-
-print(f" Starting Native PySpark Ingestion for {TABLE_NAME}...")
+print(f" Starting Native COPY INTO Ingestion for {TABLE_NAME}...")
 
 # ======================================================================================
-# 1. READ & ENRICH (In-Memory Processing)
+# 1. CREATE EMPTY TABLE (Required for COPY INTO)
+# Unlike PySpark .saveAsTable(), COPY INTO needs the table to exist first.
 # ======================================================================================
-FILE_NAME = "1_main_chunk_1.csv"
-
-df_csv = spark.read.format("csv") \
-    .option("header", "true") \
-    .option("inferSchema", "false") \
-    .load(FILE_PATH) \
-    .withColumn("load_dt", current_timestamp()) \
-    .withColumn("source_file", lit(FILE_NAME))
+spark.sql(f"CREATE TABLE IF NOT EXISTS {TABLE_NAME}")
 
 # ======================================================================================
-# 2. IDEMPOTENCY CHECK (Serverless-Safe Try/Except Pattern)
+# 2. READ, ENRICH & LOAD (Auto-Idempotent)
 # ======================================================================================
-is_already_loaded = False
+print(f" Executing COPY INTO from {FILE_PATH}...")
 
-try:
-    # Safely attempting to read the table. No blocked catalog API used.
-    existing_df = spark.table(TABLE_NAME)
-    
-    # If table exists, check if our file is already inside
-    loaded_count = existing_df.filter(existing_df.source_file == FILE_NAME).count()
-    
-    if loaded_count > 0:
-        is_already_loaded = True
-        print(f" Idempotency Check: '{FILE_NAME}' has already been loaded. Skipping to prevent duplicates.")
+spark.sql(f"""
+    COPY INTO {TABLE_NAME}
+    FROM (
+        SELECT 
+            *,
+            current_timestamp() AS load_dt,
+            _metadata.file_path AS source_file
+        FROM '{FILE_PATH}'
+    )
+    FILEFORMAT = CSV
+    FORMAT_OPTIONS (
+        'header' = 'true',
+        'inferSchema' = 'false',
+        'delimiter' = ','
+    )
+    COPY_OPTIONS (
+        'mergeSchema' = 'true'
+    )
+""")
 
-except AnalysisException:
-    # If the table does not exist, Spark throws an AnalysisException. We catch it gracefully.
-    print("ℹ Table does not exist yet. It will be created dynamically.")
-    pass # is_already_loaded remains False
-
-# ======================================================================================
-# 3. WRITE TO DELTA (Auto Schema-Merge & Table Creation)
-# ======================================================================================
-if not is_already_loaded:
-    print(f" Writing data to {TABLE_NAME}...")
-    df_csv.write.format("delta") \
-        .mode("append") \
-        .option("mergeSchema", "true") \
-        .saveAsTable(TABLE_NAME)
-    print(" Data successfully loaded!")
+print(" COPY INTO execution complete! (Any already-loaded files were automatically skipped)")
 
 # ======================================================================================
-# 4. VERIFICATION CHECK
+# 3. VERIFICATION CHECK
 # ======================================================================================
 total_count = spark.table(TABLE_NAME).count()
 print(f" Table {TABLE_NAME} state verified. Total records: {total_count:,}")

@@ -296,6 +296,7 @@ for rus_name, eng_name in FULL_CATALOG_MAP.items():
         df_cat_renamed = df_cat_renamed.withColumnRenamed(rus_name, eng_name)
 
 # 4. DATA TRANSFORMATIONS: Clean and cast numeric columns, add metadata columns
+#expr = you write anything int the expr it works 100% works as sql database.
 df_cat_cleaned = df_cat_renamed.withColumn(
     "engine_volume_l", expr("try_cast(regexp_replace(regexp_replace(engine_volume_l, ' л', ''), ',', '.') as double)")
 ).withColumn(

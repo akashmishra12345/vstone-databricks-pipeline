@@ -28,6 +28,10 @@ SOURCE_FILE = "1_main_chunk_2.csv"
     comment="Bronze: Idempotent Ingestion of Chunk 2 CSV",
     table_properties={
         "quality": "bronze",
+# ENABLE CHANGE DATA FEED (CDF): 
+# Turns on row-level tracking for Inserts, Updates, and Deletes. 
+# This is crucial for downstream Silver/Gold layers to perform efficient 
+# incremental CDC (Change Data Capture) without re-reading the entire Bronze table.
         "delta.enableChangeDataFeed": "true"
     }
 )

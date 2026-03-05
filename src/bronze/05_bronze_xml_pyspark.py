@@ -33,6 +33,10 @@ TABLE_NAME = f"{CATALOG}.{BRONZE}.listings_xml_pyspark"
 # 1. READ XML AS STRINGS
 df_xml = (spark.read
   .format("xml")
+# CRITICAL STRATEGY: XML is hierarchical (tree-like), not tabular. 
+# Spark needs to know exactly which XML node represents a single "row" in our table.
+# 'rowTag' tells the parser: "Treat every <record> tag as a new DataFrame row."
+# If this tag name is incorrect or misspelled, the entire DataFrame will parse as nulls.
   .option("rowTag", "record") 
   .option("inferSchema", "false") 
   .load(FILE_PATH) # Uses the variable from Section 1

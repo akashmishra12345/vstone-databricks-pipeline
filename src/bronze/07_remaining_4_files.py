@@ -17,8 +17,12 @@ LANDING_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{VOLUME}/"
 
 # Generic Table Properties to handle Russian headers & special characters
 standard_props = {
+    # Metadata tag for Data Cataloging and Medallion Architecture governance
     "quality": "bronze",
+    # Enables metadata-only schema evolution (allows dropping/renaming columns 
+    # instantly without rewriting massive underlying Parquet data files)
     "delta.columnMapping.mode": "name", 
+    #Enforces strict protocol versions required to safely support Column Mapping
     "delta.minReaderVersion": "2",
     "delta.minWriterVersion": "5"
 }
@@ -95,24 +99,24 @@ def geo_locations_bronze():
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- 1. Text Data
-# MAGIC SELECT * FROM `vstone_catalog`.`bronze`.`listings_text_bronze` LIMIT 10;
+# %sql
+# -- 1. Text Data
+# SELECT * FROM `vstone_catalog`.`bronze`.`listings_text_bronze` LIMIT 10;
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- 2. Photo Data
-# MAGIC SELECT * FROM `vstone_catalog`.`bronze`.`listings_photo_bronze` LIMIT 10;
+# %sql
+# -- 2. Photo Data
+# SELECT * FROM `vstone_catalog`.`bronze`.`listings_photo_bronze` LIMIT 10;
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- 3. Catalog Data (Most critical for backticks due to Russian headers)
-# MAGIC SELECT * FROM `vstone_catalog`.`bronze`.`car_catalog_bronze` LIMIT 10;
+# %sql
+# -- 3. Catalog Data (Most critical for backticks due to Russian headers)
+# SELECT * FROM `vstone_catalog`.`bronze`.`car_catalog_bronze` LIMIT 10;
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC -- 4. Geo Data
-# MAGIC SELECT * FROM `vstone_catalog`.`bronze`.`geo_locations_bronze` LIMIT 10;
+# %sql
+# -- 4. Geo Data
+# SELECT * FROM `vstone_catalog`.`bronze`.`geo_locations_bronze` LIMIT 10;
