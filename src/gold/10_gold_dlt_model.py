@@ -113,7 +113,7 @@ def text_source_v():
         spark.readStream
             .option("skipChangeCommits", "true")
             .table(f"{SILVER}.listings_text_silver")
-            .select("listing_id", "description_clean", "silver_load_dt")
+            .select("listing_id", col("text").alias("description_clean"), "silver_load_dt")
     )
 
 dlt.apply_changes(

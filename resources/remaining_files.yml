@@ -1,11 +1,14 @@
 resources:
-  jobs:
-    remaining_files_job:
-      name: remaining_files_job
-      tasks:
-        - task_key: remaining_files
-          pipeline_task:
-            pipeline_id: b8cae190-f5db-4401-a4b3-9ac7f6da7389
-      queue:
-        enabled: true
-      performance_target: PERFORMANCE_OPTIMIZED
+  pipelines:
+    pipeline_ingestion_pipeline_for_remaining_files:
+      name: ingestion_pipeline_for_remaining_files
+      libraries:
+        - notebook:
+            path: ../src/bronze/07_remaining_4_files.py
+      schema: bronze
+      continuous: false
+      development: true
+      photon: true
+      channel: PREVIEW
+      catalog: vstone_catalog
+      serverless: true

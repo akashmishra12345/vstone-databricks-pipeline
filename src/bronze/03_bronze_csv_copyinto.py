@@ -1,9 +1,4 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC #Widgets & Configuration
-
-# COMMAND ----------
-
 
 # Setup widgets for dynamic execution
 dbutils.widgets.text("project_catalog", "vstone_catalog", "1. Target Catalog Name")
