@@ -64,6 +64,23 @@ print(f" Table {TABLE_NAME} state verified. Total records: {total_count:,}")
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC # verification
+
+# COMMAND ----------
+
+# Verification
+if spark.catalog.tableExists(TABLE_NAME):
+    total_count = spark.table(TABLE_NAME).count()
+    print(f"\n[SUMMARY]")
+    print(f"Table Name     : {TABLE_NAME}")
+    print(f"Total Records  : {total_count:,}")
+    print(f"Checkpoint     : {FILE_PATH}")
+else:
+    print("ERROR: Table was not created. Check stream logs.")
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # Table data 
 
 # COMMAND ----------

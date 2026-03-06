@@ -37,7 +37,7 @@ standard_props = {
 # Section 2: DLT Table Definitions Logic
 
 # 1. TABLE: listings_text_bronze (Fixed Parsing for Descriptions)
-@dlt.table(name="listings_text_bronze", table_properties=standard_props)
+@dlt.table(name="listings_text", table_properties=standard_props)
 def listings_text_bronze():
     return (
         spark.readStream.format("cloudFiles")
@@ -55,7 +55,7 @@ def listings_text_bronze():
     )
 
 # 2. TABLE: listings_photo_bronze (String Ingestion)
-@dlt.table(name="listings_photo_bronze", table_properties=standard_props)
+@dlt.table(name="listings_photo", table_properties=standard_props)
 def listings_photo_bronze():
     return (
         spark.readStream.format("cloudFiles")
@@ -69,7 +69,7 @@ def listings_photo_bronze():
     )
 
 # 3. TABLE: car_catalog_bronze (Semicolon Separated)
-@dlt.table(name="car_catalog_bronze", table_properties=standard_props)
+@dlt.table(name="car_catalog", table_properties=standard_props)
 def car_catalog_bronze():
     return (
         spark.readStream.format("cloudFiles")
@@ -84,7 +84,7 @@ def car_catalog_bronze():
     )
 
 # 4. TABLE: geo_locations_bronze (Fixed for Row Index)
-@dlt.table(name="geo_locations_bronze", table_properties=standard_props)
+@dlt.table(name="geo_locations", table_properties=standard_props)
 def geo_locations_bronze():
     return (
         spark.readStream.format("cloudFiles")
@@ -101,22 +101,22 @@ def geo_locations_bronze():
 
 # %sql
 # -- 1. Text Data
-# SELECT * FROM `vstone_catalog`.`bronze`.`listings_text_bronze` LIMIT 10;
+# SELECT * FROM `vstone_catalog`.`bronze`.`listings_text` LIMIT 10;
 
 # COMMAND ----------
 
 # %sql
 # -- 2. Photo Data
-# SELECT * FROM `vstone_catalog`.`bronze`.`listings_photo_bronze` LIMIT 10;
+# SELECT * FROM `vstone_catalog`.`bronze`.`listings_photo` LIMIT 10;
 
 # COMMAND ----------
 
 # %sql
 # -- 3. Catalog Data (Most critical for backticks due to Russian headers)
-# SELECT * FROM `vstone_catalog`.`bronze`.`car_catalog_bronze` LIMIT 10;
+# SELECT * FROM `vstone_catalog`.`bronze`.`car_catalog` LIMIT 10;
 
 # COMMAND ----------
 
 # %sql
 # -- 4. Geo Data
-# SELECT * FROM `vstone_catalog`.`bronze`.`geo_locations_bronze` LIMIT 10;
+# SELECT * FROM `vstone_catalog`.`bronze`.`geo_locations` LIMIT 10;
