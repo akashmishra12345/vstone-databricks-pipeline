@@ -3,12 +3,15 @@ resources:
     data_chunking:
       name: data_chunking
       tasks:
-        - task_key: data_chunking
+        - task_key: data_chunking_job
           notebook_task:
             notebook_path: ../src/setup/02_data_chunking.py
+            source: WORKSPACE
           environment_key: Default
-          
+      queue:
+        enabled: true
       environments:
         - environment_key: Default
           spec:
             environment_version: "4"
+      performance_target: PERFORMANCE_OPTIMIZED

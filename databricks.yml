@@ -12,17 +12,17 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://dbc-06838378-a321.cloud.databricks.com
+      host: https://dbc-053c659a-8cbc.cloud.databricks.com
 
   test:
     workspace:
-      host: https://dbc-06838378-a321.cloud.databricks.com
+      host: https://dbc-053c659a-8cbc.cloud.databricks.com
 
   # Production target with fixed syntax
   prod:
     mode: production
     workspace:
-      host: https://dbc-06838378-a321.cloud.databricks.com
+      host: https://dbc-053c659a-8cbc.cloud.databricks.com
       root_path: /Users/akash.r.mishra@v4c.ai/.bundle/${bundle.name}/${bundle.target}
     run_as:
       # Removed 'permissions' from here to fix the error

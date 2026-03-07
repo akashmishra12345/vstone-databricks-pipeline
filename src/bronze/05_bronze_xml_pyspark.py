@@ -1,71 +1,202 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC #  Widgets & Configuration 
+# MAGIC # 05 — Bronze XML Ingestion | PySpark Native
+# MAGIC
+# MAGIC Ingests `1_main_chunk_4.xml` into `vstone_catalog.bronze.listings_xml_pyspark`
+# MAGIC using **PySpark native XML support** (Spark 4.x built-in, no external library).
+# MAGIC
+# MAGIC | Design Decision  | Choice                        | Reason |
+# MAGIC |------------------|-------------------------------|--------|
+# MAGIC | Reader           | PySpark `spark.read.format("xml")` | Native Spark — no Pandas, no overhead |
+# MAGIC | Schema           | Explicit DDL, `inferSchema=false` | All columns STRING in Bronze |
+# MAGIC | Idempotency      | DELETE WHERE source_file + append | Re-run replaces only this file's rows |
+# MAGIC | Audit columns    | `load_dt`, `source_file`      | Mandatory on every row |
 
 # COMMAND ----------
 
-from pyspark.sql.functions import current_timestamp, lit, col
+# MAGIC %md
+# MAGIC ## Widgets & Configuration
 
-# Setup widgets for dynamic execution
-dbutils.widgets.text("project_catalog", "vstone_catalog", "1. Target Catalog Name")
-dbutils.widgets.text("raw_schema", "raw", "2. Raw Schema Name")
-dbutils.widgets.text("bronze_schema", "bronze", "3. Bronze Schema Name")
-dbutils.widgets.text("chunks_volume", "chunks", "4. Chunks Volume Name")
+# COMMAND ----------
 
-# Fetch values into variables
-CATALOG = dbutils.widgets.get("project_catalog")
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, StructField, StringType
+
+dbutils.widgets.text("project_catalog", "vstone_catalog", "1. Catalog")
+dbutils.widgets.text("raw_schema",      "raw",            "2. Raw Schema")
+dbutils.widgets.text("bronze_schema",   "bronze",         "3. Bronze Schema")
+
+CATALOG    = dbutils.widgets.get("project_catalog")
 RAW_SCHEMA = dbutils.widgets.get("raw_schema")
-BRONZE = dbutils.widgets.get("bronze_schema")
-VOLUME = dbutils.widgets.get("chunks_volume")
+BRONZE     = dbutils.widgets.get("bronze_schema")
 
-# Fixed variable definitions to resolve NameError
-SOURCE_FILE_NAME = "1_main_chunk_4.xml"
-FILE_PATH = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/{VOLUME}/{SOURCE_FILE_NAME}"
-TABLE_NAME = f"{CATALOG}.{BRONZE}.listings_xml_pyspark"
+FILE_NAME    = "1_main_chunk_4.xml"
+SOURCE_FILE  = f"/Volumes/{CATALOG}/{RAW_SCHEMA}/chunks/{FILE_NAME}"
+TARGET_TABLE = f"{CATALOG}.{BRONZE}.listings_xml_pyspark"
+
+print(f"Source file  : {SOURCE_FILE}")
+print(f"Target table : {TARGET_TABLE}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC #XML Ingestion via PySpark (Chunk 4)
+# MAGIC ## Bronze Schema DDL
+# MAGIC
+# MAGIC All 19 source columns defined as STRING — `inferSchema = false`.
+# MAGIC `rowTag = "record"` matches the XML element written by `csv_to_xml.py`:
+# MAGIC ```xml
+# MAGIC <data>
+# MAGIC   <record>
+# MAGIC     <cost>75000.0</cost>
+# MAGIC     <currency>₽</currency>
+# MAGIC     ...
+# MAGIC   </record>
+# MAGIC </data>
+# MAGIC ```
 
 # COMMAND ----------
 
-# 1. READ XML AS STRINGS
+BRONZE_SCHEMA = StructType([
+    StructField("cost",          StringType(), True),
+    StructField("currency",      StringType(), True),
+    StructField("marka",         StringType(), True),
+    StructField("model",         StringType(), True),
+    StructField("year",          StringType(), True),
+    StructField("has_license",   StringType(), True),
+    StructField("place",         StringType(), True),
+    StructField("date",          StringType(), True),
+    StructField("id",            StringType(), True),
+    StructField("engine",        StringType(), True),
+    StructField("power",         StringType(), True),
+    StructField("gear",          StringType(), True),
+    StructField("probeg",        StringType(), True),
+    StructField("sWheel",        StringType(), True),
+    StructField("complectation", StringType(), True),
+    StructField("transmission",  StringType(), True),
+    StructField("R",             StringType(), True),
+    StructField("G",             StringType(), True),
+    StructField("B",             StringType(), True),
+])
+
+print(f"Schema defined — {len(BRONZE_SCHEMA.fields)} columns, inferSchema = false (all STRING)")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Read XML with PySpark
+# MAGIC
+# MAGIC `spark.read.format("xml")` is Spark 4.x native — **no Pandas, no external library**.
+# MAGIC - `rowTag = "record"` — one DataFrame row per `<record>` element
+# MAGIC - `schema = BRONZE_SCHEMA` — enforces STRING types, no inference
+# MAGIC - Audit columns added directly in the Spark DataFrame chain
+
+# COMMAND ----------
+
+print(f"Reading XML with PySpark native reader...")
+
 df_xml = (spark.read
-  .format("xml")
-# CRITICAL STRATEGY: XML is hierarchical (tree-like), not tabular. 
-# Spark needs to know exactly which XML node represents a single "row" in our table.
-# 'rowTag' tells the parser: "Treat every <record> tag as a new DataFrame row."
-# If this tag name is incorrect or misspelled, the entire DataFrame will parse as nulls.
-  .option("rowTag", "record") 
-  .option("inferSchema", "false") 
-  .load(FILE_PATH) # Uses the variable from Section 1
-  .withColumn("load_dt", current_timestamp())
-  .withColumn("source_file", lit(SOURCE_FILE_NAME)))
+    .format("xml")
+    .option("rowTag",       "record")   # Each <record> element = one row
+    .option("inferSchema",  "false")    # Explicit schema — no type inference
+    .schema(BRONZE_SCHEMA)
+    .load(SOURCE_FILE)
+    .withColumn("load_dt",     F.current_timestamp())  # Mandatory audit: ingestion time
+    .withColumn("source_file", F.lit(FILE_NAME))       # Mandatory audit: origin file
+)
 
-# 2. IMPLEMENT IDEMPOTENCY: Check and Delete
-if spark.catalog.tableExists(TABLE_NAME):
-    print(f" Cleaning up existing records for {SOURCE_FILE_NAME} in {TABLE_NAME}...")
-    spark.sql(f"DELETE FROM {TABLE_NAME} WHERE source_file = '{SOURCE_FILE_NAME}'")
-
-# 3. WRITE TO BRONZE TABLE
-(df_xml.write
-  .mode("append")
-  .option("mergeSchema", "true")
-  .saveAsTable(TABLE_NAME))
-
-# 4. VERIFICATION
-count = spark.table(TABLE_NAME).filter(col("source_file") == SOURCE_FILE_NAME).count()
-print(f" XML Ingestion Complete: {count:,} records from {SOURCE_FILE_NAME} are now in Bronze.")
+raw_count = df_xml.count()
+print(f"Rows read from XML   : {raw_count:,}")
+print(f"Columns              : {df_xml.columns}")
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Data Verification
+# MAGIC ## Null Guard
+# MAGIC
+# MAGIC Drop rows where `id` is null — these are malformed records or empty XML elements.
 
 # COMMAND ----------
 
-# Check if data exists in the XML table
-df_check = spark.table("vstone_catalog.bronze.listings_xml_pyspark")
-print(f"Total Rows Ingested from XML: {df_check.count():,}")
-display(df_check.limit(5))
+df_clean = df_xml.filter(F.col("id").isNotNull())
+null_dropped = raw_count - df_clean.count()
+
+print(f"Rows after null guard : {df_clean.count():,}")
+print(f"Null id rows dropped  : {null_dropped:,}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Idempotent Write
+# MAGIC
+# MAGIC Pattern: DELETE rows for this source file, then append fresh rows.
+# MAGIC Re-running this notebook never duplicates data — only this file's rows
+# MAGIC are replaced, leaving rows from other source files untouched.
+
+# COMMAND ----------
+
+if spark.catalog.tableExists(TARGET_TABLE):
+    before = spark.table(TARGET_TABLE).count()
+    spark.sql(f"DELETE FROM {TARGET_TABLE} WHERE source_file = '{FILE_NAME}'")
+    after_delete = spark.table(TARGET_TABLE).count()
+    print(f"Existing rows before delete : {before:,}")
+    print(f"Rows deleted for {FILE_NAME} : {before - after_delete:,}")
+else:
+    print(f"Table does not exist yet — will be created on write.")
+
+(df_clean.write
+    .format("delta")
+    .mode("append")
+    .option("mergeSchema", "true")
+    .saveAsTable(TARGET_TABLE))
+
+print(f"Write complete.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Verification & Null Audit
+
+# COMMAND ----------
+
+if not spark.catalog.tableExists(TARGET_TABLE):
+    raise Exception(f"ERROR: Table not found after write — {TARGET_TABLE}")
+
+df_bronze      = spark.table(TARGET_TABLE)
+total          = df_bronze.count()
+this_file_rows = df_bronze.filter(F.col("source_file") == FILE_NAME).count()
+null_id        = df_bronze.filter(F.col("id").isNull()).count()
+null_cost      = df_bronze.filter(F.col("cost").isNull()).count()
+null_marka     = df_bronze.filter(F.col("marka").isNull()).count()
+no_load_dt     = df_bronze.filter(F.col("load_dt").isNull()).count()
+no_source_file = df_bronze.filter(F.col("source_file").isNull()).count()
+
+print(f"\n{'='*60}")
+print(f"  INGESTION SUMMARY")
+print(f"{'='*60}")
+print(f"  Table              : {TARGET_TABLE}")
+print(f"  Total rows         : {total:,}")
+print(f"  Rows from {FILE_NAME} : {this_file_rows:,}")
+print(f"{'='*60}")
+print(f"  NULL CHECKS")
+print(f"  null id            : {null_id:,}      (must be 0)")
+print(f"  null cost          : {null_cost:,}")
+print(f"  null marka         : {null_marka:,}")
+print(f"{'='*60}")
+print(f"  AUDIT COLUMNS")
+print(f"  missing load_dt    : {no_load_dt:,}    (must be 0)")
+print(f"  missing source_file: {no_source_file:,} (must be 0)")
+print(f"{'='*60}")
+print(f"  Reader             : PySpark native XML (no Pandas)")
+print(f"  Schema             : inferSchema = false (explicit DDL)")
+print(f"  Idempotency        : DELETE + append on source_file")
+print(f"{'='*60}")
+
+all_pass = (null_id == 0 and no_load_dt == 0 and no_source_file == 0 and this_file_rows > 0)
+if all_pass:
+    print(f"  ALL CHECKS PASSED — {this_file_rows:,} rows ingested cleanly.")
+else:
+    print(f"  WARNING: One or more checks failed — investigate above.")
+
+# COMMAND ----------
+
+display(spark.table(TARGET_TABLE).limit(10))
