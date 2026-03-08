@@ -35,9 +35,9 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
 
-  # =========================
-  # 2. Run Bronze Unit Tests (Parallel)
-  # =========================
+ # =========================
+# 2. Run Bronze Unit Tests
+# =========================
   run-bronze-tests:
     name: Run Bronze Unit Tests
     runs-on: ubuntu-latest
@@ -55,8 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip uninstall -y databricks-connect pyspark-connect || true
-          pip install pytest pyspark
+          pip install pytest databricks-connect
 
       - name: Run Bronze tests
         run: |
