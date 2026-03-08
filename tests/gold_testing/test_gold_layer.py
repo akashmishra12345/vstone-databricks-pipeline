@@ -270,11 +270,11 @@ def test_t3_gold_load_dt_present_and_non_null(spark, table):
 
 @pytest.mark.parametrize("table", SCD2_DIM_PARAMS)
 def test_t3_scd2_load_dt_present_and_non_null(spark, table):
-    """T3 — SCD2 dims carry load_dt (not gold_load_dt) — must exist and be non-null."""
+    """T3 — SCD2 dims carry silver_load_dt as their lineage timestamp — must exist and be non-null."""
     df = spark.read.table(f"{GOLD}.{table}")
-    assert "load_dt" in df.columns, f"[{table}] Missing column: load_dt"
-    nulls = df.filter(F.col("load_dt").isNull()).count()
-    assert nulls == 0, f"[{table}] load_dt has {nulls:,} NULL rows."
+    assert "silver_load_dt" in df.columns, f"[{table}] Missing column: silver_load_dt"
+    nulls = df.filter(F.col("silver_load_dt").isNull()).count()
+    assert nulls == 0, f"[{table}] silver_load_dt has {nulls:,} NULL rows."
 
 
 @pytest.mark.parametrize("entry", SCD2_PARAMS)
