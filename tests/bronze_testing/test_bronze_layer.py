@@ -293,10 +293,10 @@ def test_t3_no_rescued_data_pollution(spark, entry):
 def test_t3_source_file_identifies_origin(spark, entry):
     """T3 — source_file values must correctly identify the ingestion source file."""
     expected_map = {
-        "listings_csv_copyinto":    "chunk1.csv",
-        "listings_csv_dlt":         "chunk2.csv",
-        "listings_json_autoloader": "chunk3.json",
-        "listings_xml_pyspark":     "chunk4.xml",
+        "listings_csv_copyinto":    "1_main_chunk_1.csv",
+        "listings_csv_dlt":         "1_main_chunk_2.csv",
+        "listings_json_autoloader": "1_main_chunk_3.json",
+        "listings_xml_pyspark":     "1_main_chunk_4.xml",
         "listings_text":            "1_text.csv",
         "listings_photo":           "1_photo.csv",
         "car_catalog":              "catalogs.csv",
