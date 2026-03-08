@@ -3,7 +3,7 @@ resources:
     copy_into_job:
       name: copy_into_job
       tasks:
-        - task_key: copy_into
+        - task_key: COPY_INTO
           notebook_task:
             notebook_path: ../src/bronze/03_bronze_csv_copyinto.py
             source: WORKSPACE

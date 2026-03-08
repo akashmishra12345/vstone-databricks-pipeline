@@ -1,0 +1,32 @@
+resources:
+  jobs:
+    end_to_end_pipeline:
+      name: end_to_end_pipeline
+      tasks:
+        - task_key: 01_ingestion
+          run_job_task:
+            job_id: 412780078934596
+        - task_key: 02_ingestion
+          run_job_task:
+            job_id: 670202309047982
+        - task_key: 03_ingestion
+          depends_on:
+            - task_key: 02_ingestion
+            - task_key: 01_ingestion
+          pipeline_task:
+            pipeline_id: 2c45d586-0892-46a9-9e1f-63db38a196d0
+            full_refresh: false
+        - task_key: 04_silver_transformation
+          depends_on:
+            - task_key: 03_ingestion
+          pipeline_task:
+            pipeline_id: e301395b-24bc-4fd8-a1b7-87471bc160a5
+            full_refresh: false
+        - task_key: 05_gold_layer
+          depends_on:
+            - task_key: 04_silver_transformation
+          pipeline_task:
+            pipeline_id: 8e8e725c-6c06-4c77-b7e3-ec4f93cb5e2e
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED

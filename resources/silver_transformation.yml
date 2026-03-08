@@ -1,17 +1,18 @@
 resources:
-  jobs:
-    silver_transformation_job:
-      name: silver_transformation_job
-      tasks:
-        - task_key: silver_transformation
-          notebook_task:
-            notebook_path: ../src/silver/08_silver_transformation.py
-            source: WORKSPACE
-          environment_key: Default
-      queue:
-        enabled: true
-      environments:
-        - environment_key: Default
-          spec:
-            environment_version: "4"
-      performance_target: PERFORMANCE_OPTIMIZED
+  pipelines:
+    pipeline_silver_transformations_dlt:
+      name: silver_transformations_dlt
+      configuration:
+        pipeline.catalog: vstone_catalog
+        pipeline.bronze_schema: bronze
+        pipeline.silver_schema: silver
+      libraries:
+        - notebook:
+            path: ../src/silver/08_silver_transformation.py
+      schema: silver
+      continuous: false
+      development: true
+      photon: true
+      channel: PREVIEW
+      catalog: vstone_catalog
+      serverless: true

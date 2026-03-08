@@ -1,11 +1,11 @@
 resources:
   pipelines:
-    pipeline_remaining_files_dlt:
-      name: remaining_files_dlt
+    pipeline_gold_layer_dlt_pipeline:
+      name: gold_layer_dlt_pipeline
       libraries:
         - notebook:
-            path: ../src/bronze/07_remaining_4_files.py
-      schema: bronze
+            path: ../src/gold/10_gold_layer_dlt.py
+      schema: gold
       continuous: false
       development: true
       photon: true
