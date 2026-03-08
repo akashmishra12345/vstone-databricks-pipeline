@@ -182,6 +182,7 @@ REGISTRY = [
             ("photo_url", "photo_url_clean", _std),
         ],
         "t1_use_simple_eq": False,
+        "pk_unique_check" : False,   # one listing can have multiple photos
         "t2_pre_filter"   : lambda df: df.filter(F.col("listing_id").isNotNull()),
         "t2_select"       : [
             ("id",        "listing_id", _id_dbl),
