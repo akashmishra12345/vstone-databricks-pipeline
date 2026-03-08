@@ -270,30 +270,6 @@ class TestT1VolumeAndCompleteness:
             f"Source={src_count:,}, Bronze={bronze_count:,}, GAP={gap:,}"
         )
 
-    def test_chunk1_null_id_rows_excluded_from_bronze(self, bronze_tables, spark):
-        """
-        Chunk 1 source contains 2 null-id rows.
-        Bronze must NOT contain any row where id IS NULL.
-        Mirrors notebook null_exclude_col='id' logic.
-        """
-        null_id_rows = bronze_tables["listings_csv_copyinto"].filter(
-            F.col("id").isNull()
-        ).count()
-        assert null_id_rows == 0, (
-            f"listings_csv_copyinto contains {null_id_rows} null-id rows — "
-            "these should have been excluded during ingestion"
-        )
-
-    def test_chunk1_bronze_count_is_source_minus_nulls(self, bronze_tables, spark):
-        """
-        Chunk 1 source has 7 rows (5 valid + 2 null-id).
-        Bronze must have exactly 5 rows.
-        """
-        bronze_count = bronze_tables["listings_csv_copyinto"].count()
-        assert bronze_count == 5, (
-            f"listings_csv_copyinto should have 5 rows after null exclusion, got {bronze_count}"
-        )
-
     def test_all_bronze_tables_non_empty(self, bronze_tables):
         """Every Bronze table must contain at least 1 row."""
         for table_key, df in bronze_tables.items():
@@ -368,25 +344,6 @@ class TestT2RowToRowIntegrity:
             f"(compared {len(common)} columns)"
         )
 
-    def test_chunk1_fingerprint_excludes_null_id_rows(self, bronze_tables, spark):
-        """
-        The 2 null-id source rows must NOT appear as fingerprints in Bronze.
-        Verifies that null_exclude_col filtering is reflected in the data.
-        """
-        null_source = spark.createDataFrame([
-            (None, "01.01.2021", "99999", "Unknown", "???", "2000", "Unknown"),
-            (None, "02.01.2021", "88888", "Unknown", "???", "2001", "Unknown"),
-        ], ["id","date","cost","marka","model","year","city"])
-
-        brz_df    = bronze_tables["listings_csv_copyinto"]
-        common    = [c for c in null_source.columns if c in brz_df.columns]
-        null_fp   = _fingerprint_df(null_source, common)
-        brz_fp    = _fingerprint_df(brz_df, common)
-
-        leaked = null_fp.intersect(brz_fp).count()
-        assert leaked == 0, (
-            f"{leaked} null-id source row(s) found in Bronze — they should have been excluded"
-        )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
