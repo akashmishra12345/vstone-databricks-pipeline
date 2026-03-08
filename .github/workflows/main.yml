@@ -54,6 +54,7 @@ jobs:
 
       - name: Install dependencies
         run: |
+          pip install pytest pyspark
           pip install --upgrade pip
           pip uninstall -y pyspark pyspark-connect databricks-connect || true
           pip install pytest databricks-connect

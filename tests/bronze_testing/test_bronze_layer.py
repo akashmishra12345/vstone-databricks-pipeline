@@ -33,6 +33,26 @@ from pyspark.sql.types import (
 )
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SparkSession fixture  (local, in-memory — no Databricks cluster needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module")
+def spark():
+    from pyspark.sql import SparkSession
+    session = (
+        SparkSession.builder
+        .master("local[*]")
+        .appName("bronze_layer_tests")
+        .config("spark.sql.shuffle.partitions", "4")
+        .config("spark.ui.enabled", "false")
+        .getOrCreate()
+    )
+    session.sparkContext.setLogLevel("ERROR")
+    yield session
+    session.stop()
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Shared helpers  (mirror notebook helpers verbatim)
 # ─────────────────────────────────────────────────────────────────────────────
