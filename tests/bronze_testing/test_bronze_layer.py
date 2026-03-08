@@ -1,29 +1,37 @@
-"""
-test_bronze_layer.py — Bronze Layer Test Suite
-===============================================
-Implements a PyTest framework using Databricks Connect to validate
-Volume & Completeness, Row Integrity (SHA-256), and Schema & Metadata
-across all 8 Bronze tables.
+# Databricks notebook source
+# MAGIC %md
+# MAGIC # Bronze Layer Test Suite
+# MAGIC Implements a PyTest framework using Databricks Connect to validate
+# MAGIC Volume & Completeness, Row Integrity (SHA-256), and Schema & Metadata
+# MAGIC across all 8 Bronze tables.
+# MAGIC
+# MAGIC | Suite | What it checks                                  |
+# MAGIC |-------|-------------------------------------------------|
+# MAGIC | T1    | Row count: source file vs Bronze table          |
+# MAGIC | T2    | SHA-256 fingerprint match: every row, every col |
+# MAGIC | T3    | Audit columns, _rescued_data, data types        |
 
-| Suite | What it checks                                   |
-|-------|--------------------------------------------------|
-| T1    | Row count: source file vs Bronze table           |
-| T2    | SHA-256 fingerprint match: every row, every col  |
-| T3    | Audit columns, _rescued_data, data types         |
-"""
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Imports
+
+# COMMAND ----------
 
 import pytest
 from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 
+# COMMAND ----------
 
-# =========================
-# FIXTURES & CONFIG
-# =========================
+# MAGIC %md
+# MAGIC ## Spark Fixture & Config
+
+# COMMAND ----------
 
 @pytest.fixture(scope="session")
 def spark():
-    """Initializes the Databricks Connect session for the test suite."""
+    """Initializes the Databricks Connect session for the entire test suite."""
     return DatabricksSession.builder.getOrCreate()
 
 
@@ -36,8 +44,15 @@ CONFIG = {
 CHUNKS_PATH  = f"/Volumes/{CONFIG['catalog']}/{CONFIG['raw']}/chunks"
 LANDING_PATH = f"/Volumes/{CONFIG['catalog']}/{CONFIG['raw']}/landing"
 
-# Registry — single source of truth for all test suites.
-# Each entry: name, src, table, fmt, opts, null_exclude_col (optional)
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Registry
+# MAGIC Single source of truth for all test suites.
+# MAGIC Add a new entry here and all three suites pick it up automatically.
+
+# COMMAND ----------
+
 REGISTRY = [
     {
         "name"             : "Chunk 1 — CSV / COPY INTO",
@@ -101,10 +116,34 @@ REGISTRY = [
 # Parametrize list — reused across all test suites
 REGISTRY_PARAMS = [pytest.param(e, id=e["table"]) for e in REGISTRY]
 
+# Listing tables that must have a STRING id column
+LISTING_TABLES = (
+    "listings_csv_copyinto",
+    "listings_csv_dlt",
+    "listings_json_autoloader",
+    "listings_xml_pyspark",
+)
 
-# =========================
-# HELPER FUNCTIONS
-# =========================
+# Expected source filename fragment per table
+SOURCE_FILE_MAP = {
+    "listings_csv_copyinto":    "1_main_chunk_1.csv",
+    "listings_csv_dlt":         "1_main_chunk_2.csv",
+    "listings_json_autoloader": "1_main_chunk_3.json",
+    "listings_xml_pyspark":     "1_main_chunk_4.xml",
+    "listings_text":            "1_text.csv",
+    "listings_photo":           "1_photo.csv",
+    "car_catalog":              "catalogs.csv",
+    "geo_locations":            "final_geografic.csv",
+}
+
+print(f"Registry loaded — {len(REGISTRY)} tables registered.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Helper Functions
+
+# COMMAND ----------
 
 def get_table_path(table_name: str) -> str:
     """Returns the fully-qualified Bronze table name."""
@@ -147,10 +186,14 @@ def get_row_hash(df, columns):
         .select("row_hash")
     )
 
+# COMMAND ----------
 
-# =========================
-# T1 — VOLUME & COMPLETENESS
-# =========================
+# MAGIC %md
+# MAGIC ## T1 — Volume & Completeness
+# MAGIC Compares row counts between source file and Bronze table.
+# MAGIC Source rows with known-bad data (e.g. null id) are excluded before comparison.
+
+# COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t1_source_count_equals_bronze_count(spark, entry):
@@ -192,10 +235,15 @@ def test_t1_chunk1_no_null_id_rows(spark):
         "these should have been excluded during ingestion."
     )
 
+# COMMAND ----------
 
-# =========================
-# T2 — ROW-TO-ROW INTEGRITY (SHA-256)
-# =========================
+# MAGIC %md
+# MAGIC ## T2 — Row-to-Row Integrity (SHA-256)
+# MAGIC Generates a SHA-256 fingerprint for every row using all columns present in both
+# MAGIC source and Bronze. Compares fingerprint sets via subtract — any mismatch means
+# MAGIC a row was corrupted, altered, or missing.
+
+# COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t2_no_source_rows_missing_from_bronze(spark, entry):
@@ -236,10 +284,16 @@ def test_t2_no_extra_rows_invented_in_bronze(spark, entry):
         + (f" | NOTE: {excl_note}" if excl_note else "")
     )
 
+# COMMAND ----------
 
-# =========================
-# T3 — SCHEMA & METADATA
-# =========================
+# MAGIC %md
+# MAGIC ## T3 — Schema & Metadata
+# MAGIC Three checks per Bronze table:
+# MAGIC 1. **Audit columns** — `load_dt` and `source_file` must exist and be 100% populated
+# MAGIC 2. **`_rescued_data`** — if present, must be all-null (no data loss from schema mismatch)
+# MAGIC 3. **Data types** — `load_dt` must be TIMESTAMP, id columns must be STRING
+
+# COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_audit_columns_present(spark, entry):
@@ -292,17 +346,7 @@ def test_t3_no_rescued_data_pollution(spark, entry):
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_source_file_identifies_origin(spark, entry):
     """T3 — source_file values must correctly identify the ingestion source file."""
-    expected_map = {
-        "listings_csv_copyinto":    "1_main_chunk_1.csv",
-        "listings_csv_dlt":         "1_main_chunk_2.csv",
-        "listings_json_autoloader": "1_main_chunk_3.json",
-        "listings_xml_pyspark":     "1_main_chunk_4.xml",
-        "listings_text":            "1_text.csv",
-        "listings_photo":           "1_photo.csv",
-        "car_catalog":              "catalogs.csv",
-        "geo_locations":            "final_geografic.csv",
-    }
-    expected = expected_map[entry["table"]]
+    expected = SOURCE_FILE_MAP[entry["table"]]
     df    = spark.read.table(get_table_path(entry["table"]))
     files = [r["source_file"] for r in df.select("source_file").distinct().collect()]
     assert any(expected in f for f in files), (
@@ -313,10 +357,7 @@ def test_t3_source_file_identifies_origin(spark, entry):
 @pytest.mark.parametrize("entry", [
     pytest.param(e, id=e["table"])
     for e in REGISTRY
-    if e["table"] in (
-        "listings_csv_copyinto", "listings_csv_dlt",
-        "listings_json_autoloader", "listings_xml_pyspark",
-    )
+    if e["table"] in LISTING_TABLES
 ])
 def test_t3_listing_id_is_string_type(spark, entry):
     """
