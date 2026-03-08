@@ -56,7 +56,11 @@ import shutil
 import importlib
 import xml.etree.ElementTree as ET
 import sys
-sys.append(sys.path, os.path.join(os.getcwd(), "../.."))
+
+repo_root = os.path.abspath("../..") 
+if repo_root not in sys.path:
+    sys.path.append(repo_root)
+    print(f"Added to sys.path: {repo_root}")
 
 # Only csv_splitter is imported as a module.
 # csv_to_json and csv_to_xml are inlined directly to avoid
