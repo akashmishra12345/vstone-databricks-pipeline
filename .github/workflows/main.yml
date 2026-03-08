@@ -29,7 +29,6 @@ jobs:
         uses: databricks/setup-cli@main
 
       - name: Validate Databricks Bundle
-        working-directory: ./vstone_project
         run: |
           databricks bundle validate
         env:
@@ -42,7 +41,7 @@ jobs:
   run-bronze-tests:
     name: Run Bronze Unit Tests
     runs-on: ubuntu-latest
-    needs: validate-bundle   # Only depends on validation
+    needs: validate-bundle
 
     steps:
       - name: Checkout repository
