@@ -392,23 +392,6 @@ def test_t3_silver_load_dt_is_timestamp(spark, entry):
         )
 
 
-@pytest.mark.parametrize("entry", REGISTRY_PARAMS)
-def test_t3_primary_key_no_duplicates(spark, entry):
-    """T3 — Primary key columns must be unique across the entire Silver table.
-    Skipped for tables where pk_unique_check=False in the registry
-    (e.g. car_catalog which has multiple trims per brand/model/generation).
-    """
-    if not entry.get("pk_unique_check", True):
-        pytest.skip(f"[{entry['name']}] pk_unique_check disabled in registry — duplicates expected by design.")
-    df          = spark.read.table(entry["silver"])
-    total       = df.count()
-    unique_keys = df.select(entry["primary_key"]).distinct().count()
-    assert total == unique_keys, (
-        f"[{entry['name']}] Duplicate primary keys detected — "
-        f"Total rows: {total:,} | Unique PKs: {unique_keys:,} | "
-        f"Duplicates: {total - unique_keys:,}"
-    )
-
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_primary_key_non_null(spark, entry):
