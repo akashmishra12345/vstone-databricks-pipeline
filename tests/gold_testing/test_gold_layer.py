@@ -6,7 +6,7 @@
 # MAGIC
 # MAGIC | Suite | What it checks                                                      |
 # MAGIC |-------|---------------------------------------------------------------------|
-# MAGIC | T1    | Gold row counts vs Silver source of truth (Reconciliation)         |
+# MAGIC | T1    | Gold row counts vs Silver source of truth (Reconciliation)          |
 # MAGIC | T2    | Every Silver listing_id present in fact_listings (Row Integrity)    |
 # MAGIC | T3    | `gold_load_dt` on all tables; `__START_AT/__END_AT` on SCD2 dims   |
 # MAGIC | T4    | All FK + derived + financial columns present (Schema Integrity)     |
@@ -47,7 +47,7 @@ GOLD   = f"{CONFIG['catalog']}.{CONFIG['gold']}"
 SILVER = f"{CONFIG['catalog']}.{CONFIG['silver']}"
 
 MIN_JOIN_RATE_PCT = 60.0
-DIM_DATE_EXPECTED = 7671
+DIM_DATE_EXPECTED = 7670
 
 # COMMAND ----------
 
@@ -183,7 +183,7 @@ def test_t1_dim_listing_photos_current_matches_silver(spark):
 
 
 def test_t1_dim_date_row_count(spark):
-    """T1 — dim_date must contain exactly 7,671 rows (2010–2030)."""
+    """T1 — dim_date must contain exactly 7,670 rows (2010–2030)."""
     date_cnt = spark.read.table(f"{GOLD}.dim_date").count()
     assert date_cnt == DIM_DATE_EXPECTED, (
         f"dim_date row count mismatch — Expected={DIM_DATE_EXPECTED:,} | Actual={date_cnt:,}"
