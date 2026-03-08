@@ -58,12 +58,14 @@ DIM_DATE_EXPECTED = 7670
 
 # COMMAND ----------
 
-# All Gold tables that must carry gold_load_dt
+# Gold tables that carry gold_load_dt (excludes SCD2 dims which use load_dt)
 ALL_GOLD_TABLES = [
-    "dim_date", "dim_car", "dim_location", "dim_listing_details", "dim_listing_photos",
-    "fact_listings", "agg_monthly_sales_trend", "agg_brand_location_performance",
+    "dim_date", "fact_listings", "agg_monthly_sales_trend", "agg_brand_location_performance",
     "agg_regional_market_depth", "agg_comprehensive_kpi_cube", "agg_top_10_brands_by_spend",
 ]
+
+# SCD2 dims use load_dt instead of gold_load_dt
+SCD2_DIM_TABLES = ["dim_car", "dim_location", "dim_listing_details", "dim_listing_photos"]
 
 # SCD2 dimension tables and their natural keys
 SCD2_REGISTRY = [
@@ -121,7 +123,8 @@ JOIN_REGISTRY = [
 # Parametrize lists
 SCD2_PARAMS      = [pytest.param(e, id=e["name"])  for e in SCD2_REGISTRY]
 JOIN_PARAMS      = [pytest.param(e, id=e["dim"])   for e in JOIN_REGISTRY]
-GOLD_TABLE_PARAMS = [pytest.param(t, id=t)         for t in ALL_GOLD_TABLES]
+GOLD_TABLE_PARAMS  = [pytest.param(t, id=t) for t in ALL_GOLD_TABLES]
+SCD2_DIM_PARAMS   = [pytest.param(t, id=t) for t in SCD2_DIM_TABLES]
 
 print(f"Registry loaded — {len(ALL_GOLD_TABLES)} Gold tables | "
       f"{len(SCD2_REGISTRY)} SCD2 dims | {len(JOIN_REGISTRY)} joins registered.")
@@ -263,6 +266,15 @@ def test_t3_gold_load_dt_present_and_non_null(spark, table):
     assert "gold_load_dt" in df.columns, f"[{table}] Missing column: gold_load_dt"
     nulls = df.filter(F.col("gold_load_dt").isNull()).count()
     assert nulls == 0, f"[{table}] gold_load_dt has {nulls:,} NULL rows."
+
+
+@pytest.mark.parametrize("table", SCD2_DIM_PARAMS)
+def test_t3_scd2_load_dt_present_and_non_null(spark, table):
+    """T3 — SCD2 dims carry load_dt (not gold_load_dt) — must exist and be non-null."""
+    df = spark.read.table(f"{GOLD}.{table}")
+    assert "load_dt" in df.columns, f"[{table}] Missing column: load_dt"
+    nulls = df.filter(F.col("load_dt").isNull()).count()
+    assert nulls == 0, f"[{table}] load_dt has {nulls:,} NULL rows."
 
 
 @pytest.mark.parametrize("entry", SCD2_PARAMS)
