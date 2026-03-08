@@ -54,10 +54,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pytest pyspark
           pip install --upgrade pip
-          pip uninstall -y pyspark pyspark-connect databricks-connect || true
-          pip install pytest databricks-connect
+          pip uninstall -y databricks-connect pyspark-connect || true
+          pip install pytest pyspark
 
       - name: Run Bronze tests
         run: |

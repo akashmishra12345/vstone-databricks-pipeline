@@ -40,13 +40,20 @@ from pyspark.sql.types import (
 
 @pytest.fixture(scope="module")
 def spark():
+    import os
     from pyspark.sql import SparkSession
+
+    # Remove Databricks Connect / Spark remote env vars so PySpark runs locally
+    for var in ("SPARK_REMOTE", "SPARK_CONNECT_MODE_ENABLED", "DATABRICKS_HOST", "DATABRICKS_TOKEN"):
+        os.environ.pop(var, None)
+
     session = (
         SparkSession.builder
         .master("local[*]")
         .appName("bronze_layer_tests")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
+        .config("spark.remote", "")          # explicitly blank out any remote URL
         .getOrCreate()
     )
     session.sparkContext.setLogLevel("ERROR")
