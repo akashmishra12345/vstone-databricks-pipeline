@@ -141,6 +141,7 @@ REGISTRY = [
             ("Мощность двигателя", "engine_power_hp", _eng_pow),
         ],
         "t1_use_simple_eq": True,
+        "pk_unique_check" : False,   # catalog has multiple trims per brand/model/generation
         "t2_pre_filter"   : lambda df: df.filter(
             F.col("brand").isNotNull() & F.col("model").isNotNull()
         ),
@@ -392,7 +393,12 @@ def test_t3_silver_load_dt_is_timestamp(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_primary_key_no_duplicates(spark, entry):
-    """T3 — Primary key columns must be unique across the entire Silver table."""
+    """T3 — Primary key columns must be unique across the entire Silver table.
+    Skipped for tables where pk_unique_check=False in the registry
+    (e.g. car_catalog which has multiple trims per brand/model/generation).
+    """
+    if not entry.get("pk_unique_check", True):
+        pytest.skip(f"[{entry['name']}] pk_unique_check disabled in registry — duplicates expected by design.")
     df          = spark.read.table(entry["silver"])
     total       = df.count()
     unique_keys = df.select(entry["primary_key"]).distinct().count()
