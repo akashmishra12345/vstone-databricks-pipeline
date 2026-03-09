@@ -3,25 +3,7 @@
 # MAGIC # 06 — Bronze DLT Pipeline | CSV Ingestion (Chunk 2)
 # MAGIC
 # MAGIC Ingests `1_main_chunk_2.csv` into `vstone_catalog.bronze.listings_csv_dlt`
-# MAGIC using **Delta Live Tables + Auto Loader**.
-# MAGIC
-# MAGIC ### Why column names were broken (`1`, `2000`, `TOYOTA`...):
-# MAGIC Auto Loader had stale schema metadata cached in `schemaLocation` from a previous
-# MAGIC run where the CSV was read without `header=true`. The cached broken names
-# MAGIC (`1`, `2000`, `TOYOTA`) were reused on every subsequent run even after the fix.
-# MAGIC
-# MAGIC ### Fix applied:
-# MAGIC - Explicit `BRONZE_SCHEMA` passed via `.schema()` — Auto Loader never infers names
-# MAGIC - `cloudFiles.schemaEvolutionMode = none` — cached schema is ignored, explicit DDL wins
-# MAGIC - `cloudFiles.inferColumnTypes = false` — all columns stay STRING in Bronze
-# MAGIC
-# MAGIC | Design Decision           | Choice                              | Reason |
-# MAGIC |---------------------------|-------------------------------------|--------|
-# MAGIC | Schema                    | Explicit `StructType`, `inferSchema=false` | Correct column names locked in code |
-# MAGIC | Schema evolution          | `schemaEvolutionMode = none`        | Prevents stale cache overriding DDL |
-# MAGIC | Idempotency               | Auto Loader checkpoint + DLT state  | Files tracked, never re-ingested |
-# MAGIC | Change Data Feed          | `delta.enableChangeDataFeed = true` | Enables efficient CDC for Silver/Gold |
-# MAGIC | Audit columns             | `load_dt`, `source_file`            | Mandatory on every row |
+# MAGIC using Delta Live Tables.
 
 # COMMAND ----------
 
@@ -33,9 +15,6 @@ from pyspark.sql.types import StructType, StructField, StringType
 
 # MAGIC %md
 # MAGIC ## Configuration
-# MAGIC
-# MAGIC DLT pipelines use `spark.conf.get()` — `dbutils.widgets` is not available
-# MAGIC inside a DLT pipeline execution context.
 
 # COMMAND ----------
 
@@ -53,10 +32,6 @@ print(f"Source file : {FILE_NAME}")
 
 # MAGIC %md
 # MAGIC ## Bronze Schema
-# MAGIC
-# MAGIC All 19 columns defined explicitly as STRING.
-# MAGIC `inferSchema = false` — Bronze is a raw landing zone, no type casting here.
-# MAGIC Column names match the CSV header row exactly (case-sensitive).
 
 # COMMAND ----------
 
@@ -86,17 +61,6 @@ BRONZE_SCHEMA = StructType([
 
 # MAGIC %md
 # MAGIC ## DLT Table — `listings_csv_dlt`
-# MAGIC
-# MAGIC **Auto Loader options:**
-# MAGIC - `header = true` — reads column names from row 1 of the CSV
-# MAGIC - `schema(BRONZE_SCHEMA)` — locks column names, overrides any cached schema
-# MAGIC - `cloudFiles.inferColumnTypes = false` — no type inference, all STRING
-# MAGIC - `cloudFiles.schemaEvolutionMode = none` — rejects schema changes, explicit DDL always wins
-# MAGIC - `pathGlobFilter` — processes only `1_main_chunk_2.csv` from the chunks folder
-# MAGIC
-# MAGIC **DLT expectations:**
-# MAGIC - `valid_id` — tracks rows where `id IS NULL` in the DLT event log
-# MAGIC - `valid_cost` — tracks rows where `cost IS NULL`
 
 # COMMAND ----------
 

@@ -1,19 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 07 — Bronze DLT | Remaining 4 Landing Files
-# MAGIC
-# MAGIC | Table | File | Columns |
-# MAGIC |---|---|---|
-# MAGIC | `listings_text` | `1_text.csv` | `id`, `text` |
-# MAGIC | `listings_photo` | `1_photo.csv` | `_c0`, `photo_url`, `id` |
-# MAGIC | `car_catalog` | `catalogs.csv` | 19 Cyrillic columns, `;` delimiter |
-# MAGIC | `geo_locations` | `final_geografic.csv` | `_c0`, `name_padesh`, `greate_padesh`, `lat`, `lon` |
-# MAGIC
-# MAGIC **Schema corrections vs previous version:**
-# MAGIC - `listings_text`: 2 cols (`id`, `text`)
-# MAGIC - `listings_photo`:  `_c0`
-# MAGIC - `car_catalog`: 19 Cyrillic cols
-# MAGIC - `geo_locations`: `_c0`
 
 # COMMAND ----------
 
@@ -56,7 +43,6 @@ SCHEMA_TEXT = StructType([
 ])
 
 # ── listings_photo: 3 columns
-# Spark names the unnamed pandas index column '_c0' when header=true
 SCHEMA_PHOTO = StructType([
     StructField("_c0",       StringType(), True),   # unnamed pandas index, Spark calls it _c0
     StructField("photo_url", StringType(), True),
@@ -139,8 +125,6 @@ def listings_text():
 
 # MAGIC %md
 # MAGIC ## DLT Table — `listings_photo`
-# MAGIC
-# MAGIC `_c0` is the correct Spark name for the unnamed pandas index column.
 
 # COMMAND ----------
 
@@ -170,8 +154,6 @@ def listings_photo():
 
 # MAGIC %md
 # MAGIC ## DLT Table — `car_catalog`
-# MAGIC
-# MAGIC 19 Cyrillic column headers. `delta.columnMapping.mode=name` in table properties handles these safely.
 
 # COMMAND ----------
 
@@ -201,8 +183,6 @@ def car_catalog():
 
 # MAGIC %md
 # MAGIC ## DLT Table — `geo_locations`
-# MAGIC
-# MAGIC `lat` and `lon` are kept as STRING in Bronze — cast to DOUBLE in Silver.
 
 # COMMAND ----------
 

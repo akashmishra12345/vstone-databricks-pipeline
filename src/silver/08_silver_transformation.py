@@ -1,35 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 08 — Silver DLT Pipeline | Streaming Bronze → Silver
-# MAGIC
-# MAGIC All Silver and Quarantine tables are **Streaming Tables** (`@dlt.table` with `spark.readStream`).
-# MAGIC
-# MAGIC ### Why streaming tables:
-# MAGIC - `dlt.read_stream()` reads from Bronze DLT tables as a stream — only new rows processed each run
-# MAGIC - Both Silver and Quarantine use `foreachBatch` pattern via DLT's append mode
-# MAGIC - Idempotency guaranteed by DLT checkpoint + MERGE on primary key
-# MAGIC
-# MAGIC ### Deliverables:
-# MAGIC | # | Deliverable | Implemented |
-# MAGIC |---|---|---|
-# MAGIC | 1 | Transform Bronze → Silver: clean nulls, dedupe, standardize column names |  All 5 tables |
-# MAGIC | 2 | Manage malformed records → quarantine |  5 quarantine streaming tables |
-# MAGIC | 3 | Pandas UDFs to standardize DataFrame/Table headers |  `standardize_text`, `clean_text`, `standardize_geo` + `CATALOG_COL_MAP` |
-# MAGIC | 4 | Descriptions/metadata for enterprise discoverability |  `comment=` on every `@dlt.table` |
-# MAGIC
-# MAGIC ### Silver tables produced:
-# MAGIC ```
-# MAGIC Bronze (streaming)           Silver (streaming)             Quarantine (streaming)
-# MAGIC ──────────────────           ──────────────────             ──────────────────────
-# MAGIC listings_csv_copyinto ┐
-# MAGIC listings_json_autoloader ├──► listings_silver_merged  ────► listings_main_quarantine
-# MAGIC listings_xml_pyspark  │
-# MAGIC listings_csv_dlt      ┘
-# MAGIC listings_text         ──────► listings_text           ────► listings_text_quarantine
-# MAGIC listings_photo        ──────► listings_photo          ────► listings_photo_quarantine
-# MAGIC car_catalog           ──────► car_catalog             ────► car_catalog_quarantine
-# MAGIC geo_locations         ──────► geography               ────► geography_quarantine
-# MAGIC ```
 
 # COMMAND ----------
 
@@ -71,7 +42,7 @@ print(f"Catalog: {CATALOG} | Bronze: {BRONZE} | Silver: {SILVER}")
 
 # COMMAND ----------
 
-# --- UPDATED UDF TO PREVENT CORRUPTED_DATA ---
+# ---  UDF TO PREVENT CORRUPTED_DATA ---
 @F.pandas_udf(StringType())
 
 def standardize_text(s: pd.Series) -> pd.Series:
@@ -103,14 +74,7 @@ print("UDFs registered: standardize_text | clean_text | standardize_geo")
 # COMMAND ----------
 
 def deduplicate(df, partition_cols: list, order_col: str = "bronze_load_dt"):
-    """
-    Streaming-safe deduplication using dropDuplicates().
-    ROW_NUMBER() with PARTITION BY is NOT supported in Structured Streaming —
-    it requires a full sort over unbounded state which is incompatible with
-    incremental stream processing.
-    dropDuplicates(partition_cols) is the correct streaming alternative —
-    it keeps the first occurrence of each key within each micro-batch.
-    """
+    # Streaming-safe deduplication using dropDuplicates(partition_cols)
     return df.dropDuplicates(partition_cols)
 
 def _is_valid_russia(df):
@@ -131,7 +95,7 @@ def _is_valid_russia(df):
 
 # COMMAND ----------
 
-# Cyrillic → English column rename map (Deliverable 3)
+# Column rename map: Cyrillic → English for car catalog tables
 
 CATALOG_COL_MAP = {
 
@@ -149,19 +113,7 @@ CATALOG_COL_MAP = {
 
 
 def _build_listings_stream():
-    """
-    Unions 4 Bronze listing streams via spark.readStream on the full Delta table path.
-    dlt.read_stream() only works for tables in the SAME pipeline — Bronze tables live
-    in a separate pipeline so we read them directly as Delta streams instead.
-    allowMissingColumns=True handles column differences across CSV/JSON/XML sources.
-
-    FIX — DELTA_SOURCE_IGNORE_DELETE:
-    Bronze tables may have rows deleted due to OPTIMIZE compaction or table recreation.
-    DLT streaming fails hard on deletes by default.
-    ignoreDeletes=true  → silently skip delete operations at the Delta log level.
-    ignoreChanges=true  → also tolerate updates/rewrites (covers OPTIMIZE + VACUUM).
-    Both options are safe here because Bronze is append-only from our ingest pipelines.
-    """
+    # Union 4 Bronze listing streams, reading as Delta streams with ignoreDeletes/ignoreChanges for append-only safety
     def _bronze_stream(table):
         return (spark.readStream
                 .format("delta")
@@ -177,11 +129,7 @@ def _build_listings_stream():
 
 
 def _transform_listings(df):
-    """
-    Full Bronze→Silver transformation for main listings.
-    Casts all columns, parses dates, applies UDFs, adds enrichment columns.
-    load_dt and source_file preserved from Bronze as bronze_load_dt / bronze_source_file.
-    """
+    # Bronze→Silver transformation: cast columns, parse dates, apply UDFs, enrich, preserve audit columns
     return (df.select(
         F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
         F.coalesce(
@@ -241,7 +189,6 @@ _LISTINGS_VALID_FILTER = (
 @dlt.expect("valid_price",      "price_rub IS NOT NULL")
 @dlt.expect("valid_date",       "listing_date IS NOT NULL")
 @dlt.expect("positive_price",   "price_rub > 0")
-# @dlt.expect("valid_brand_name", "brand != 'CORRUPTED_DATA'")
 def listings_silver_merged():
     df = _build_listings_stream()
     df = _transform_listings(df)
@@ -318,10 +265,7 @@ def listings_text_quarantine():
 # COMMAND ----------
 
 def _transform_photo(df):
-    """
-    Cast id → listing_id. Standardize photo_url via UDF for deduplication.
-    Drop _c0 (unnamed pandas index) and _rescued_data.
-    """
+    # Standardize photo_url for deduplication, cast id to listing_id, drop unnecessary columns
     return (df
         .withColumn("listing_id",         F.col("id").cast("double").cast("long").cast("string"))
         .withColumn("photo_url_clean",    standardize_text(F.col("photo_url")))

@@ -3,29 +3,11 @@
 # MAGIC # 10 · Gold Layer — Star Schema DLT Pipeline
 # MAGIC
 # MAGIC **Architecture:** Kimball Star Schema | All tables fully materialized
-# MAGIC
-# MAGIC | Table | DLT API | SCD | Materialized | Audit column |
-# MAGIC |---|---|---|---|---|
-# MAGIC | `dim_date` | `@dlt.table` | None | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `dim_car` | `create_streaming_table` + `apply_changes` | SCD2 | ✅ Materialized table | `silver_load_dt` + `__START_AT/__END_AT` |
-# MAGIC | `dim_location` | `create_streaming_table` + `apply_changes` | SCD2 | ✅ Materialized table | `silver_load_dt` + `__START_AT/__END_AT` |
-# MAGIC | `dim_listing_details` | `create_streaming_table` + `apply_changes` | SCD2 | ✅ Materialized table | `silver_load_dt` + `__START_AT/__END_AT` |
-# MAGIC | `dim_listing_photos` | `create_streaming_table` + `apply_changes` | SCD2 | ✅ Materialized table | `silver_load_dt` + `__START_AT/__END_AT` |
-# MAGIC | `fact_listings` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `agg_monthly_sales_trend` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `agg_brand_location_performance` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `agg_regional_market_depth` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `agg_comprehensive_kpi_cube` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC | `agg_top_10_brands_by_spend` | `@dlt.table` | — | ✅ Materialized table | `gold_load_dt` |
-# MAGIC
-# MAGIC > **Note on SCD2 dims:** `create_streaming_table` + `apply_changes` is the **only** DLT API that supports SCD2. These tables are physically identical to `@dlt.table` — fully materialized Delta tables. The UI label differs ('Streaming table' vs 'Materialized view') but both are materialized on disk.
-# MAGIC
-# MAGIC > **Note on dim_car 2.2K rows:** This is correct. SCD2 key = unique `brand+model`. 2.2K unique car models from 117K Silver rows. Reconciliation: `SELECT COUNT(DISTINCT brand, model) FROM silver.car_catalog_transformation` = `SELECT COUNT(*) FROM gold.dim_car WHERE __CURRENT = true`
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 1 — Imports & Configuration
+# MAGIC ##  Imports & Configuration
 
 # COMMAND ----------
 
@@ -45,14 +27,11 @@ GOLD_PROPS = {
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 2 — `dim_date` — `@dlt.table` | Materialized table
+# MAGIC ##  `dim_date` — `@dlt.table` | Materialized table
 
 # COMMAND ----------
 
 # ── DIM_DATE ─ Materialized table | Static calendar | No SCD2 ────────────────
-# @dlt.table = fully materialized Delta table (shows as "Materialized table" in UI)
-# PK: date_key | Range: 2010-01-01 → 2030-12-31
-# Audit: gold_load_dt (explicit current_timestamp)
 
 @dlt.table(
     name             = "dim_date",
@@ -85,20 +64,12 @@ def dim_date():
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 3 — `dim_car` — SCD Type 2 | Materialized table
+# MAGIC ##  `dim_car` — SCD Type 2 | Materialized table
 
 # COMMAND ----------
 
 # ── DIM_CAR ─ Materialized table | SCD Type 2 ────────────────────────────────
-# create_streaming_table + apply_changes = only DLT API for SCD2.
-# Produces a fully materialized Delta table (same storage as @dlt.table).
-# PK: brand + model | Source: silver.car_catalog_transformation
-# Audit: silver_load_dt (pass-through) + __START_AT / __END_AT (auto-added by SCD2)
-#
-# dim_car row count = unique brand+model combinations (~2.2K).
-# This is CORRECT — it is a dimension, not a fact.
-# Reconciliation: COUNT(DISTINCT brand, model) in Silver
-#               = COUNT(*) WHERE __CURRENT = true in dim_car
+
 
 dlt.create_streaming_table(
     name             = "dim_car",
@@ -119,15 +90,11 @@ dlt.apply_changes(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 4 — `dim_location` — SCD Type 2 | Materialized table
+# MAGIC ## `dim_location` — SCD Type 2 | Materialized table
 
 # COMMAND ----------
 
 # ── DIM_LOCATION ─ Materialized table | SCD Type 2 ───────────────────────────
-# PK: city_prepositional | Source: silver.geography_transformation
-# Schema: city_prepositional, city_name, latitude, longitude,
-#         bronze_load_dt, bronze_source_file, silver_load_dt
-# Audit: silver_load_dt + __START_AT / __END_AT
 
 dlt.create_streaming_table(
     name             = "dim_location",
@@ -148,15 +115,11 @@ dlt.apply_changes(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 5 — `dim_listing_details` — SCD Type 2 | Materialized table
+# MAGIC ##  `dim_listing_details` — SCD Type 2 | Materialized table
 
 # COMMAND ----------
 
 # ── DIM_LISTING_DETAILS ─ Materialized table | SCD Type 2 ────────────────────
-# PK: listing_id | Source: silver.listings_text_transformation
-# Schema: text, load_dt, source_file, listing_id,
-#         bronze_load_dt, bronze_source_file, silver_load_dt
-# Audit: silver_load_dt + __START_AT / __END_AT
 
 dlt.create_streaming_table(
     name             = "dim_listing_details",
@@ -177,16 +140,11 @@ dlt.apply_changes(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 6 — `dim_listing_photos` — SCD Type 2 | Materialized table
+# MAGIC ##  `dim_listing_photos` — SCD Type 2 | Materialized table
 
 # COMMAND ----------
 
 # ── DIM_LISTING_PHOTOS ─ Materialized table | SCD Type 2 ─────────────────────
-# PK: listing_id + photo_url_clean (composite — one listing → many photos)
-# Source: silver.listings_photo_transformation (~7.9M rows)
-# Schema: listing_id, photo_url, photo_url_clean,
-#         bronze_load_dt, bronze_source_file, silver_load_dt
-# Audit: silver_load_dt + __START_AT / __END_AT
 
 dlt.create_streaming_table(
     name             = "dim_listing_photos",
@@ -208,26 +166,11 @@ dlt.apply_changes(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 7 — `fact_listings` — `@dlt.table` | Materialized table
+# MAGIC ## `fact_listings` — `@dlt.table` | Materialized table
 
 # COMMAND ----------
 
 # ── FACT_LISTINGS ─ Materialized table | Batch | @dlt.table ──────────────────
-# Source: silver.listings_silver_merged (1,083,237 rows — already deduped)
-# Silver → Gold is 1:1 — no additional dedup or row drops.
-#
-# FK relationships (all 4 dimensions):
-#   listing_id    → dim_listing_details.listing_id
-#   listing_date  → dim_date.date_key
-#   brand + model → dim_car.(brand, model)
-#   location_key  → dim_location.city_prepositional
-#   photo_count   → denormalized from dim_listing_photos
-#
-# Gold-level derived columns:
-#   car_age_at_listing = YEAR(listing_date) - manufacture_year
-#   is_high_mileage    = mileage_km > 100,000
-#   price_per_hp_usd   = price_usd / engine_power
-# Audit: gold_load_dt = current_timestamp() at Gold load time
 
 @dlt.table(
     name             = "fact_listings",
@@ -318,7 +261,7 @@ def fact_listings():
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Cell 8 — Aggregates (5 tables) — `@dlt.table` | Materialized tables
+# MAGIC ##  Aggregates (5 tables) — `@dlt.table` | Materialized tables
 
 # COMMAND ----------
 

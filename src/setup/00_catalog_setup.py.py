@@ -25,7 +25,7 @@ ALL_LAYERS = [RAW_SCHEMA, BRONZE, SILVER, GOLD, "security"]
 
 print(f"INFO: DABs parameters received. Initializing {CATALOG}...")
 
-# 3. Execution Logic (Clean & Simple)
+# 3. Execution Logic 
 spark.sql(f"CREATE CATALOG IF NOT EXISTS {CATALOG}")
 spark.sql(f"USE CATALOG {CATALOG}")
 

@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # 02 — Data Chunking
+# MAGIC #  Data Chunking
 # MAGIC
 # MAGIC Splits `1_main.csv` (1,083,269 rows) from the landing volume into 4 chunks
 # MAGIC stored in the chunks volume. Intermediate CSVs are deleted after conversion
@@ -13,7 +13,6 @@
 # MAGIC | 1_main_chunk_3.json| JSON   | 20%   | 216,653   | Auto Loader          |
 # MAGIC | 1_main_chunk_4.xml | XML    | 10%   | 108,329   | PySpark XML          |
 # MAGIC
-# MAGIC > chunk_4 absorbs the rounding remainder so sum always equals source row count.
 
 # COMMAND ----------
 
@@ -62,9 +61,6 @@ if repo_root not in sys.path:
     sys.path.append(repo_root)
     print(f"Added to sys.path: {repo_root}")
 
-# Only csv_splitter is imported as a module.
-# csv_to_json and csv_to_xml are inlined directly to avoid
-# importlib.reload() attribute resolution issues on Databricks clusters.
 import src.utils.csv_splitter as csv_splitter
 csv_splitter = importlib.reload(csv_splitter)
 
@@ -73,7 +69,7 @@ print(f"csv_splitter loaded : {csv_splitter.__file__}")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Pre-Flight: Verify Source & Show Expected Split
+# MAGIC ## Verify Source & Show Expected Split
 
 # COMMAND ----------
 
@@ -140,11 +136,6 @@ for i in range(1, 5):
 
 # MAGIC %md
 # MAGIC ## Step 2 — Convert `chunk_3.csv` → `chunk_3.json`
-# MAGIC
-# MAGIC Uses `csv.DictReader` which reads column names from the header row.
-# MAGIC Produces a JSON array where every object has keys:
-# MAGIC `cost, currency, marka, model, year, has_license, place, date,`
-# MAGIC `id, engine, power, gear, probeg, sWheel, complectation, transmission, R, G, B`
 
 # COMMAND ----------
 

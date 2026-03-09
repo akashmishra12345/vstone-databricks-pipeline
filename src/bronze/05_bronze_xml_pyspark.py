@@ -3,14 +3,7 @@
 # MAGIC # 05 — Bronze XML Ingestion | PySpark Native
 # MAGIC
 # MAGIC Ingests `1_main_chunk_4.xml` into `vstone_catalog.bronze.listings_xml_pyspark`
-# MAGIC using **PySpark native XML support** (Spark 4.x built-in, no external library).
-# MAGIC
-# MAGIC | Design Decision  | Choice                        | Reason |
-# MAGIC |------------------|-------------------------------|--------|
-# MAGIC | Reader           | PySpark `spark.read.format("xml")` | Native Spark — no Pandas, no overhead |
-# MAGIC | Schema           | Explicit DDL, `inferSchema=false` | All columns STRING in Bronze |
-# MAGIC | Idempotency      | DELETE WHERE source_file + append | Re-run replaces only this file's rows |
-# MAGIC | Audit columns    | `load_dt`, `source_file`      | Mandatory on every row |
+# MAGIC using **PySpark native XML support** (Spark 4.x built-in).
 
 # COMMAND ----------
 
@@ -44,15 +37,7 @@ print(f"Target table : {TARGET_TABLE}")
 # MAGIC
 # MAGIC All 19 source columns defined as STRING — `inferSchema = false`.
 # MAGIC `rowTag = "record"` matches the XML element written by `csv_to_xml.py`:
-# MAGIC ```xml
-# MAGIC <data>
-# MAGIC   <record>
-# MAGIC     <cost>75000.0</cost>
-# MAGIC     <currency>₽</currency>
-# MAGIC     ...
-# MAGIC   </record>
-# MAGIC </data>
-# MAGIC ```
+# MAGIC
 
 # COMMAND ----------
 
@@ -84,11 +69,6 @@ print(f"Schema defined — {len(BRONZE_SCHEMA.fields)} columns, inferSchema = fa
 
 # MAGIC %md
 # MAGIC ## Read XML with PySpark
-# MAGIC
-# MAGIC `spark.read.format("xml")` is Spark 4.x native — **no Pandas, no external library**.
-# MAGIC - `rowTag = "record"` — one DataFrame row per `<record>` element
-# MAGIC - `schema = BRONZE_SCHEMA` — enforces STRING types, no inference
-# MAGIC - Audit columns added directly in the Spark DataFrame chain
 
 # COMMAND ----------
 
@@ -127,10 +107,6 @@ print(f"Null id rows dropped  : {null_dropped:,}")
 
 # MAGIC %md
 # MAGIC ## Idempotent Write
-# MAGIC
-# MAGIC Pattern: DELETE rows for this source file, then append fresh rows.
-# MAGIC Re-running this notebook never duplicates data — only this file's rows
-# MAGIC are replaced, leaving rows from other source files untouched.
 
 # COMMAND ----------
 

@@ -44,7 +44,7 @@ print(f"INFO: Data Profiling initialized for Landing Path: {LANDING_PATH}")
 def profile_file(name, path, fmt, options):
     print(f"\n{'='*95}\n DATA AUDIT REPORT: {name.upper()}\n{'='*95}")
     
-    # READ: Sab columns ko string treat karega initially
+    # READ: Load all columns as string for initial profiling (string-safe)
     df = (spark.read
           .option("header", True)
           .option("inferSchema", False) 
@@ -58,7 +58,7 @@ def profile_file(name, path, fmt, options):
         print(f" Warning: File {name} is empty.")
         return None, 0
 
-    # 2. COMPLETE METRICS AUDIT (Using string-safe aggregations)
+    # COMPLETE METRICS AUDIT: Nulls, distincts, completeness for each column
     quality_exprs = []
     for c in df.columns:
         quality_exprs.extend([
@@ -87,13 +87,13 @@ def profile_file(name, path, fmt, options):
     pdf_final = pd.DataFrame(profile_rows)
     print(f" Dataset Stats: {total_rows:,} Rows | {len(df.columns)} Columns")
     
-    # Safety check for Jinja2 rendering as per previous error
+    # Display audit results with gradient highlighting for null percentage
     try:
         display(pdf_final.style.background_gradient(cmap='YlOrRd', subset=['Null_Percentage']))
     except:
         display(pdf_final)
 
-    # 3. SMART INTEGRITY CHECK (Primary Key & Uniqueness)
+    # SMART INTEGRITY CHECK: Primary key candidate, duplicate count, uniqueness ratio
     if name == "catalogs":
         pk_cols = ["Марка", "Модель", "Поколение", "Комплектация"]
         distinct_rows = df.select(pk_cols).distinct().count()
@@ -141,9 +141,10 @@ if "1_main" in profiled:
     print("\n" + " " * 30 + " 1_MAIN BUSINESS LOGIC KPIs " + " " * 30)
     df_main = profiled["1_main"]["df"]
     
-    # Analysis ke liye manual casting taaki initial loading string-safe rahe
+    # Cast 'cost' column to double for numeric analysis
     df_clean = df_main.withColumn("cost_num", col("cost").cast("double"))
     
+    # Display average price and total distinct brands
     display(df_clean.select(
         spark_round(avg("cost_num"), 0).alias("Avg_Price_RUB"),
         countDistinct("marka").alias("Total_Brands")

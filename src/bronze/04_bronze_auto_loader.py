@@ -3,13 +3,6 @@
 # MAGIC # 04 — Bronze Auto Loader | JSON Ingestion
 # MAGIC
 # MAGIC Ingests `1_main_chunk_3.json` into `vstone_catalog.bronze.listings_json_autoloader`.
-# MAGIC
-# MAGIC | Design Decision      | Choice                        | Reason |
-# MAGIC |----------------------|-------------------------------|--------|
-# MAGIC | Schema               | Explicit DDL, inferSchema=false | All columns STRING in Bronze |
-# MAGIC | Idempotency          | Checkpoint + MERGE on `id`    | Re-run never duplicates rows |
-# MAGIC | Audit columns        | `load_dt`, `source_file`      | Mandatory on every row |
-# MAGIC | Null guard           | `id IS NOT NULL`              | Drops phantom empty records |
 
 # COMMAND ----------
 
@@ -49,7 +42,6 @@ print(f"Checkpoint     : {CHECKPOINT_LOC}")
 # MAGIC ## Bronze Schema DDL
 # MAGIC
 # MAGIC All 19 source columns as STRING — inferSchema = false.
-# MAGIC Type casting happens in Silver, not Bronze.
 
 # COMMAND ----------
 
@@ -81,13 +73,6 @@ print("Schema defined — inferSchema = false (all STRING)")
 
 # MAGIC %md
 # MAGIC ## Pre-Flight Checks
-# MAGIC
-# MAGIC Three things must be true before the stream starts:
-# MAGIC 1. `1_main_chunk_3.json` exists in the chunks volume
-# MAGIC 2. It is staged inside `isolated_json_source/`
-# MAGIC 3. The checkpoint is cleared if the isolated file was replaced
-# MAGIC
-# MAGIC This cell handles all three automatically.
 
 # COMMAND ----------
 
@@ -129,8 +114,6 @@ EXPECTED_KEYS = ["cost","currency","marka","model","year","has_license",
                  "sWheel","complectation","transmission","R","G","B"]
 
 # Build rename map: actual key -> correct name
-# Keys match when they ARE the correct names (02_data_chunking ran correctly)
-# Keys are wrong when they are first-data-row values (csv_to_json header bug)
 keys_match = all(k in actual_keys for k in EXPECTED_KEYS)
 
 if keys_match:
@@ -167,10 +150,6 @@ print(f"\nPre-flight PASSED — stream is ready to start.")
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Reset Checkpoint
-# MAGIC
-# MAGIC The checkpoint tracks which files Auto Loader has already processed.
-# MAGIC We clear it here so the stream always re-processes the file on this run.
 # MAGIC
 # MAGIC **Idempotency is guaranteed by the MERGE** — clearing the checkpoint
 # MAGIC does NOT cause duplicate rows because MERGE skips existing `id` values.
@@ -251,15 +230,13 @@ def upsert_to_bronze(micro_batch_df, batch_id):
 
 # COMMAND ----------
 
-# Determine whether JSON keys are correct or broken (set during pre-flight)
-# keys_match is set by the pre-flight cell above
+
 if keys_match:
     # Keys already match DDL — read directly with schema
     STREAM_SCHEMA = BRONZE_SCHEMA_DDL
     print("Stream schema         : using BRONZE_SCHEMA_DDL directly (keys match)")
 else:
-    # Keys are broken (first data row used as header by csv_to_json)
-    # Build a DDL using the actual broken key names so Auto Loader can parse them
+    
     broken_cols   = df_raw_check.columns   # actual keys from pre-flight
     STREAM_SCHEMA = ", ".join([f"`{c}` STRING" for c in broken_cols])
     print(f"Stream schema         : using BROKEN key names (will rename in foreachBatch)")

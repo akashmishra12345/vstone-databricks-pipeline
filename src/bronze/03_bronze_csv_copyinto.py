@@ -4,34 +4,6 @@
 # MAGIC **Source :** `/Volumes/vstone_catalog/raw/chunks/1_main_chunk_1.csv`
 # MAGIC **Target :** `vstone_catalog.bronze.listings_csv_copyinto`
 # MAGIC **Method :** `COPY INTO` — idempotent, incremental, file-tracked SQL command
-# MAGIC
-# MAGIC ### How COPY INTO works in this notebook
-# MAGIC ```
-# MAGIC Volume (CSV file)
-# MAGIC       │
-# MAGIC       ▼
-# MAGIC ┌─────────────────────────────────────────────┐
-# MAGIC │  COPY INTO  (tracks which files it has      │
-# MAGIC │  already loaded — re-runs are safe,         │
-# MAGIC │  duplicate files are skipped automatically) │
-# MAGIC └─────────────────────────────────────────────┘
-# MAGIC       │
-# MAGIC       ▼
-# MAGIC vstone_catalog.bronze.listings_csv_copyinto
-# MAGIC       │
-# MAGIC       ▼
-# MAGIC Null-ID purge  →  Missing-row repair  →  Reconciliation
-# MAGIC ```
-# MAGIC
-# MAGIC ### Steps
-# MAGIC | Step | Action |
-# MAGIC |------|--------|
-# MAGIC | 1 | Widgets & configuration |
-# MAGIC | 2 | Create Bronze table with explicit schema |
-# MAGIC | 3 | **`COPY INTO`** — ingest CSV into Bronze |
-# MAGIC | 4 | Null-ID audit & purge |
-# MAGIC | 5 | Missing-row repair (anti-join) |
-# MAGIC | 6 | Final reconciliation report |
 
 # COMMAND ----------
 
@@ -65,10 +37,6 @@ print(f"Target table : {TARGET_TABLE}")
 
 # MAGIC %md
 # MAGIC ## Step 2 — Create Bronze Table (if not exists)
-# MAGIC Explicit DDL — 19 source columns (all `STRING` as ingested from CSV) plus
-# MAGIC two audit columns: `load_dt` (when the row landed) and `source_file` (which file it came from).
-# MAGIC
-# MAGIC `IF NOT EXISTS` makes this cell safe to re-run at any time.
 
 # COMMAND ----------
 
@@ -106,20 +74,6 @@ print(f"Target table : {TARGET_TABLE}")
 
 # MAGIC %md
 # MAGIC ## Step 3 — COPY INTO
-# MAGIC `COPY INTO` is Databricks' idempotent CSV ingestion command:
-# MAGIC - Tracks every file it has processed in the table's transaction log
-# MAGIC - Re-running this cell on the **same file** is completely safe — already-loaded files are skipped
-# MAGIC - `FORCE = FALSE` (default) enforces that safety; set to `TRUE` only if you want to re-ingest
-# MAGIC
-# MAGIC ### Options used
-# MAGIC | Option | Value | Reason |
-# MAGIC |--------|-------|--------|
-# MAGIC | `FORMAT` | `CSV` | source file type |
-# MAGIC | `header` | `true` | first row is column names |
-# MAGIC | `inferSchema` | `false` | we own the schema — no surprises |
-# MAGIC | `encoding` | `UTF-8` | Cyrillic characters in place/model names |
-# MAGIC | `mergeSchema` | `false` | reject schema drift — explicit DDL wins |
-# MAGIC | `mode` | `PERMISSIVE` | load all rows, bad values become null |
 
 # COMMAND ----------
 
@@ -208,9 +162,6 @@ else:
 # MAGIC ## Step 5 — Missing-Row Repair
 # MAGIC After purging null-ID rows, verify whether any **valid** source rows are absent
 # MAGIC from Bronze entirely (COPY INTO may have skipped rows with parse errors).
-# MAGIC
-# MAGIC Method: read the source CSV directly, anti-join against Bronze on `id`.
-# MAGIC Only rows with a non-null `id` in the source are candidates for re-insertion.
 
 # COMMAND ----------
 
