@@ -28,9 +28,9 @@ jobs:
       - name: Validate Databricks Bundle
         run: databricks bundle validate
 
-  =========================
-  2. Run Bronze Unit Tests
-  =========================
+  #=========================
+  #2. Run Bronze Unit Tests
+  #=========================
   run-bronze-tests:
     name: Run Bronze Unit Tests
     runs-on: ubuntu-latest
