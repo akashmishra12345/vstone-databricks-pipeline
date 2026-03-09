@@ -1,0 +1,487 @@
+{
+  "datasets": [
+    {
+      "name": "6bca1a84",
+      "displayName": "top_10_brands",
+      "queryLines": [
+        "SELECT \r\n",
+        "  brand,\r\n",
+        "  total_market_value_usd,\r\n",
+        "  total_listings,\r\n",
+        "  avg_price_usd\r\n",
+        "FROM vstone_catalog.gold.agg_top_10_brands_by_spend\r\n",
+        "ORDER BY total_market_value_usd DESC"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    },
+    {
+      "name": "4111d947",
+      "displayName": "Monthly Sales Trend",
+      "queryLines": [
+        "SELECT \r\n",
+        "  month_year,\r\n",
+        "  brand,\r\n",
+        "  SUM(total_listings) AS total_listings,\r\n",
+        "  ROUND(AVG(avg_price_usd), 0) AS avg_price_usd\r\n",
+        "FROM vstone_catalog.gold.agg_monthly_sales_trend\r\n",
+        "WHERE brand IN (\r\n",
+        "  'toyota','bmw','honda','hyundai',\r\n",
+        "  'nissan','kia','mercedes-benz','lexus','mitsubishi','лада'\r\n",
+        ")\r\n",
+        "GROUP BY month_year, brand\r\n",
+        "ORDER BY month_year"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    },
+    {
+      "name": "5209f8e5",
+      "displayName": "Market Value Growth Over Time",
+      "queryLines": [
+        "SELECT \r\n",
+        "  month_year,\r\n",
+        "  brand,\r\n",
+        "  ROUND(SUM(total_revenue_usd), 0) AS monthly_revenue_usd\r\n",
+        "FROM vstone_catalog.gold.agg_monthly_sales_trend\r\n",
+        "WHERE brand IN (\r\n",
+        "  'toyota','bmw','honda','hyundai',\r\n",
+        "  'nissan','kia','mercedes-benz','lexus','mitsubishi','лада'\r\n",
+        ")\r\n",
+        "GROUP BY month_year, brand\r\n",
+        "ORDER BY month_year"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    },
+    {
+      "name": "4ff542f6",
+      "displayName": "KPI Counter Cards1",
+      "queryLines": [
+        "-- Total listings across all top brands\r\n",
+        "SELECT SUM(total_listings) AS total_listings FROM vstone_catalog.gold.agg_top_10_brands_by_spend"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    },
+    {
+      "name": "c7618507",
+      "displayName": "Total market value(kpi counter2)",
+      "queryLines": [
+        "-- Total market value\r\n",
+        "SELECT CONCAT('$', ROUND(SUM(total_market_value_usd)/1000000, 1), 'M') AS total_market_value\r\n",
+        "FROM vstone_catalog.gold.agg_top_10_brands_by_spend"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    },
+    {
+      "name": "4f2741c9",
+      "displayName": "Avg price across top brands(kpi counter3",
+      "queryLines": [
+        "-- Avg price across top brands\r\n",
+        "SELECT CONCAT('$', ROUND(AVG(avg_price_usd), 0)) AS avg_price_usd\r\n",
+        "FROM vstone_catalog.gold.agg_top_10_brands_by_spend"
+      ],
+      "catalog": "vstone_catalog",
+      "schema": "gold"
+    }
+  ],
+  "pages": [
+    {
+      "name": "ce4af89d",
+      "displayName": "Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "top-10-brands-by-market-value",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "6bca1a84",
+                  "fields": [
+                    {
+                      "name": "sum(total_market_value_usd)",
+                      "expression": "SUM(`total_market_value_usd`)"
+                    },
+                    {
+                      "name": "brand",
+                      "expression": "`brand`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Top 10 Brands by Market Value"
+              },
+              "widgetType": "pie",
+              "encodings": {
+                "angle": {
+                  "fieldName": "sum(total_market_value_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "brand",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "monthly-sales-trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4111d947",
+                  "fields": [
+                    {
+                      "name": "brand",
+                      "expression": "`brand`"
+                    },
+                    {
+                      "name": "month_year",
+                      "expression": "`month_year`"
+                    },
+                    {
+                      "name": "sum(total_listings)",
+                      "expression": "SUM(`total_listings`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": " Monthly Sales Trend"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 2
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 2
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  }
+                ]
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_year",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(total_listings)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "brand",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "market-value-growth-over-time",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "5209f8e5",
+                  "fields": [
+                    {
+                      "name": "brand",
+                      "expression": "`brand`"
+                    },
+                    {
+                      "name": "month_year",
+                      "expression": "`month_year`"
+                    },
+                    {
+                      "name": "sum(monthly_revenue_usd)",
+                      "expression": "SUM(`monthly_revenue_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Market Value Growth Over Time"
+              },
+              "mark": {
+                "colors": [
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 2
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 3
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 4
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 5
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 6
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 7
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 8
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 9
+                  },
+                  {
+                    "themeColorType": "visualizationColors",
+                    "position": 10
+                  }
+                ]
+              },
+              "widgetType": "area",
+              "encodings": {
+                "x": {
+                  "fieldName": "month_year",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(monthly_revenue_usd)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "brand",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 6,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "listings",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4ff542f6",
+                  "fields": [
+                    {
+                      "name": "total_listings",
+                      "expression": "`total_listings`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Listings"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_listings"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "mkt-value",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "c7618507",
+                  "fields": [
+                    {
+                      "name": "total_market_value",
+                      "expression": "`total_market_value`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Mkt Value"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "total_market_value"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "avg-price",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "4f2741c9",
+                  "fields": [
+                    {
+                      "name": "avg_price_usd",
+                      "expression": "`avg_price_usd`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Price"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "avg_price_usd"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 0,
+            "width": 4,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    },
+    "applyModeEnabled": false
+  }
+}

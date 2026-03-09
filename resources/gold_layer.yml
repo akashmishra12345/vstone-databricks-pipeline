@@ -5,10 +5,6 @@ resources:
       libraries:
         - notebook:
             path: ../src/gold/10_gold_layer_dlt.py
-      schema: gold
-      continuous: false
-      development: true
-      photon: true
-      channel: PREVIEW
-      catalog: vstone_catalog
+      schema: ${var.gold_schema}
+      catalog: ${var.catalog}
       serverless: true

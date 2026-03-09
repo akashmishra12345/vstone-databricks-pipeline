@@ -17,7 +17,7 @@ resources:
           environment_key: Default
         - task_key: dlt_pipeline
           pipeline_task:
-            pipeline_id: 55a18805-32d8-4090-890b-2beb643686e4
+            pipeline_id: ${resources.pipelines.pipeline_chunk4_dlt.id}
       queue:
         enabled: true
       environments:

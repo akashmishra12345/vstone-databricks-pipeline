@@ -3,16 +3,12 @@ resources:
     pipeline_silver_transformations_dlt:
       name: silver_transformations_dlt
       configuration:
-        pipeline.catalog: vstone_catalog
-        pipeline.bronze_schema: bronze
-        pipeline.silver_schema: silver
+        pipeline.catalog: ${var.catalog}
+        pipeline.bronze_schema: ${var.bronze_schema}
+        pipeline.silver_schema: ${var.silver_schema}
       libraries:
         - notebook:
             path: ../src/silver/08_silver_transformation.py
-      schema: silver
-      continuous: false
-      development: true
-      photon: true
-      channel: PREVIEW
-      catalog: vstone_catalog
+      schema: ${var.silver_schema}
+      catalog: ${var.catalog}
       serverless: true

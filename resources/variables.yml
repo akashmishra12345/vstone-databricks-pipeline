@@ -3,3 +3,10 @@ variables:
     default: "vstone_catalog"
   bronze_schema:
     default: "bronze"
+  silver_schema:
+    default: "silver"
+  gold_schema:
+    default: "gold"
+  
+  sql_warehouse:
+    default: ef99421a4a6731e7

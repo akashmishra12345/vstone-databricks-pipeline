@@ -1,0 +1,84 @@
+name: Databricks Validation & Testing
+
+on:
+  push:
+    branches: dev
+
+# Define environment variables once at the workflow level
+env:
+  DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+  DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+  DATABRICKS_SERVERLESS_COMPUTE_ID: "auto"
+
+permissions:
+  contents: read
+
+# Anchor for repeated Python setup steps
+.python_setup: &python_setup
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+    - name: Install dependencies
+      run: |
+        pip install --upgrade pip
+        pip install pytest databricks-connect
+
+jobs:
+  # 1. Validate Bundle Config
+  validate-bundle:
+    name: Validate Bundle Configuration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+      - name: Validate Databricks Bundle
+        run: databricks bundle validate
+
+  # 2. Run Bronze Unit Tests
+  run-bronze-tests:
+    name: Run Bronze Unit Tests
+    needs: validate-bundle
+    <<: *python_setup
+    steps:
+      - name: Run Bronze tests
+        run: pytest tests/bronze_testing -v --maxfail=1 --disable-warnings
+
+  # 3. Run Silver Unit Tests
+  run-silver-tests:
+    name: Run Silver Unit Tests
+    needs: validate-bundle
+    <<: *python_setup
+    steps:
+      - name: Run Silver tests
+        run: pytest tests/silver_testing -v --maxfail=1 --disable-warnings
+
+  # 4. Run Gold Unit Tests
+  run-gold-tests:
+    name: Run Gold Unit Tests
+    needs: validate-bundle
+    <<: *python_setup
+    steps:
+      - name: Run Gold tests
+        run: pytest tests/gold_testing -v --maxfail=1 --disable-warnings
+
+  # 5. Deploy and Run
+  deploy-and-run:
+    name: Deploy and Run Jobs
+    runs-on: ubuntu-latest
+    needs: [run-bronze-tests, run-silver-tests, run-gold-tests]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Databricks CLI
+        uses: databricks/setup-cli@main
+      - name: Deploy Bundle
+        run: databricks bundle deploy --target dev
+      - name: Run Databricks Job
+        run: databricks bundle run end_to_end_pipeline --target dev
