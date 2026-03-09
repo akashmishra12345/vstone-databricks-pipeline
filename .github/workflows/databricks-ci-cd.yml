@@ -91,20 +91,38 @@ jobs:
       - name: Run Gold tests
         run: pytest tests/gold_testing -v --maxfail=1 --disable-warnings
 
-  # =========================
-  # 5. Deploy and Run
-  # =========================
-  deploy-and-run:
-    name: Deploy and Run Jobs
+  run-integration-test:
+    name: Run integration test
     runs-on: ubuntu-latest
-    # Wait for ALL test suites to pass
     needs: [run-bronze-tests, run-silver-tests, run-gold-tests]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
-      - name: Deploy Bundle
-        run: databricks bundle deploy --target dev
-      - name: Run Databricks Job
-        run: databricks bundle run end_to_end_pipeline --target dev
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pytest databricks-connect
+      - name: Run integration test
+        run: pytest tests/integration_test -v --maxfail=1 --disable-warnings
+
+  # =========================
+  # 5. Deploy and Run
+  # =========================
+  # deploy-and-run:
+  #   name: Deploy and Run Jobs
+  #   runs-on: ubuntu-latest
+  #   # Wait for ALL test suites to pass
+  #   needs: run-integration-test
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Install Databricks CLI
+  #       uses: databricks/setup-cli@main
+  #     - name: Deploy Bundle
+  #       run: databricks bundle deploy --target dev
+  #     - name: Run Databricks Job
+  #       run: databricks bundle run end_to_end_pipeline --target dev
