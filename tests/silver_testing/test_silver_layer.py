@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Silver Layer Test Suite
-# MAGIC Implements a PyTest framework using Databricks Connect to validate
+# MAGIC Implements a PyTest framework to validate
 # MAGIC Reconciliation, Row Integrity (SHA-256), and Audit Columns
 # MAGIC across all 5 Silver tables.
 # MAGIC
@@ -253,9 +253,6 @@ def _get_row_hash(df, col_list: list):
 
 # MAGIC %md
 # MAGIC ## T1 — Reconciliation
-# MAGIC Verifies that every Bronze row ends up in Silver or Quarantine (none lost).
-# MAGIC `t1_use_simple_eq=True`  → raw count comparison (streaming dedup tables).
-# MAGIC `t1_use_simple_eq=False` → distinct-key comparison via `t1_dedup_exprs`.
 
 # COMMAND ----------
 

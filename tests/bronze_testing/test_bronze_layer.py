@@ -1,9 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Bronze Layer Test Suite
-# MAGIC Implements a PyTest framework using Databricks Connect to validate
-# MAGIC Volume & Completeness, Row Integrity (SHA-256), and Schema & Metadata
-# MAGIC across all 8 Bronze tables.
+# MAGIC Implements a PyTest framework to validate Volume & Completeness, Row Integrity (SHA-256), and Schema & Metadata across all 8 Bronze tables.
 # MAGIC
 # MAGIC | Suite | What it checks                                  |
 # MAGIC |-------|-------------------------------------------------|
@@ -151,11 +149,7 @@ def get_table_path(table_name: str) -> str:
 
 
 def read_source(spark, entry: dict):
-    """
-    Reads source file from Volume with registry options.
-    Applies null_exclude_col filter if set (removes known-bad rows).
-    Returns (DataFrame, exclusion_note_or_None).
-    """
+    # Reads source file from Volume with registry options and applies null exclusion if specified.
     df = (
         spark.read
         .format(entry["fmt"])
@@ -172,10 +166,7 @@ def read_source(spark, entry: dict):
 
 
 def get_row_hash(df, columns):
-    """
-    Normalises each column to trimmed STRING, replaces NULLs with '',
-    then hashes all columns together into a SHA-256 fingerprint per row.
-    """
+    # Returns a DataFrame of SHA-256 row hashes for the specified columns.
     normalised = df.select([
         F.coalesce(F.trim(F.col(c).cast("string")), F.lit("")).alias(c)
         for c in columns
@@ -191,16 +182,12 @@ def get_row_hash(df, columns):
 # MAGIC %md
 # MAGIC ## T1 — Volume & Completeness
 # MAGIC Compares row counts between source file and Bronze table.
-# MAGIC Source rows with known-bad data (e.g. null id) are excluded before comparison.
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t1_source_count_equals_bronze_count(spark, entry):
-    """
-    T1 — Row count in source file must exactly match Bronze table row count.
-    Source rows with known-bad data (null_exclude_col) are excluded before comparison.
-    """
+    # Verify source row count matches Bronze table row count, excluding known-bad rows.
     df_src, excl_note = read_source(spark, entry)
     src_count    = df_src.count()
     bronze_count = spark.read.table(get_table_path(entry["table"])).count()
@@ -215,16 +202,13 @@ def test_t1_source_count_equals_bronze_count(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t1_bronze_table_non_empty(spark, entry):
-    """T1 — Every Bronze table must contain at least 1 row."""
+    # Ensure Bronze table is not empty.
     count = spark.read.table(get_table_path(entry["table"])).count()
     assert count > 0, f"[{entry['table']}] Bronze table is empty."
 
 
 def test_t1_chunk1_no_null_id_rows(spark):
-    """
-    T1 — Chunk 1 source has 2 null-id rows that must be excluded from Bronze.
-    Bronze listings_csv_copyinto must contain zero rows where id IS NULL.
-    """
+    # Confirm listings_csv_copyinto Bronze table contains no rows with null id.
     null_id_rows = (
         spark.read.table(get_table_path("listings_csv_copyinto"))
         .filter(F.col("id").isNull())
@@ -247,10 +231,7 @@ def test_t1_chunk1_no_null_id_rows(spark):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t2_no_source_rows_missing_from_bronze(spark, entry):
-    """
-    T2 — Every source row fingerprint must exist in Bronze (nothing lost).
-    Uses subtract() to find fingerprints present in source but absent from Bronze.
-    """
+    # Ensure every source row fingerprint exists in Bronze (nothing lost).
     df_src, excl_note = read_source(spark, entry)
     df_brz      = spark.read.table(get_table_path(entry["table"]))
     common_cols = [c for c in df_src.columns if c in df_brz.columns]
@@ -267,10 +248,7 @@ def test_t2_no_source_rows_missing_from_bronze(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t2_no_extra_rows_invented_in_bronze(spark, entry):
-    """
-    T2 — No Bronze row fingerprint may be absent from source (Bronze must not invent rows).
-    Uses subtract() to find fingerprints present in Bronze but absent from source.
-    """
+    # Ensure no Bronze row fingerprint is absent from source (Bronze must not invent rows).
     df_src, excl_note = read_source(spark, entry)
     df_brz      = spark.read.table(get_table_path(entry["table"]))
     common_cols = [c for c in df_src.columns if c in df_brz.columns]
@@ -288,16 +266,12 @@ def test_t2_no_extra_rows_invented_in_bronze(spark, entry):
 
 # MAGIC %md
 # MAGIC ## T3 — Schema & Metadata
-# MAGIC Three checks per Bronze table:
-# MAGIC 1. **Audit columns** — `load_dt` and `source_file` must exist and be 100% populated
-# MAGIC 2. **`_rescued_data`** — if present, must be all-null (no data loss from schema mismatch)
-# MAGIC 3. **Data types** — `load_dt` must be TIMESTAMP, id columns must be STRING
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_audit_columns_present(spark, entry):
-    """T3 — load_dt and source_file must exist in every Bronze table schema."""
+    # Verify load_dt and source_file exist in every Bronze table schema.
     df      = spark.read.table(get_table_path(entry["table"]))
     missing = [c for c in ("load_dt", "source_file") if c not in df.columns]
     assert missing == [], (
@@ -307,7 +281,7 @@ def test_t3_audit_columns_present(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_audit_columns_non_null(spark, entry):
-    """T3 — load_dt and source_file must have zero null values in every Bronze table."""
+    # Ensure load_dt and source_file have zero null values in every Bronze table.
     df = spark.read.table(get_table_path(entry["table"]))
     for col in ("load_dt", "source_file"):
         if col in df.columns:
@@ -319,7 +293,7 @@ def test_t3_audit_columns_non_null(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_load_dt_is_timestamp(spark, entry):
-    """T3 — load_dt must be TIMESTAMP type, never string or date."""
+    # Check that load_dt is TIMESTAMP type, not string or date.
     df     = spark.read.table(get_table_path(entry["table"]))
     dtypes = dict(df.dtypes)
     if "load_dt" in dtypes:
@@ -330,10 +304,7 @@ def test_t3_load_dt_is_timestamp(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_no_rescued_data_pollution(spark, entry):
-    """
-    T3 — If _rescued_data column is present it must be entirely NULL.
-    Non-null _rescued_data indicates schema mismatch during Auto Loader ingestion.
-    """
+    # If _rescued_data column is present, it must be entirely NULL.
     df = spark.read.table(get_table_path(entry["table"]))
     if "_rescued_data" in df.columns:
         rescued = df.filter(F.col("_rescued_data").isNotNull()).count()
@@ -345,7 +316,7 @@ def test_t3_no_rescued_data_pollution(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_source_file_identifies_origin(spark, entry):
-    """T3 — source_file values must correctly identify the ingestion source file."""
+    # source_file values must correctly identify the ingestion source file.
     expected = SOURCE_FILE_MAP[entry["table"]]
     df    = spark.read.table(get_table_path(entry["table"]))
     files = [r["source_file"] for r in df.select("source_file").distinct().collect()]
@@ -360,10 +331,7 @@ def test_t3_source_file_identifies_origin(spark, entry):
     if e["table"] in LISTING_TABLES
 ])
 def test_t3_listing_id_is_string_type(spark, entry):
-    """
-    T3 — id column in listing Bronze tables must be STRING type.
-    COPY INTO and Auto Loader load with inferSchema=false, preserving raw types.
-    """
+    # id column in listing Bronze tables must be STRING type.
     df     = spark.read.table(get_table_path(entry["table"]))
     dtypes = dict(df.dtypes)
     if "id" in dtypes:
@@ -374,7 +342,7 @@ def test_t3_listing_id_is_string_type(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t3_source_file_non_empty_string(spark, entry):
-    """T3 — source_file must never be an empty string."""
+    # source_file must never be an empty string.
     df = spark.read.table(get_table_path(entry["table"]))
     if "source_file" in df.columns:
         bad = df.filter(F.trim(F.col("source_file")) == "").count()

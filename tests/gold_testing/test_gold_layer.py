@@ -1,7 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Gold Layer Test Suite
-# MAGIC Implements a PyTest framework using Databricks Connect to validate
+# MAGIC Implements a PyTest framework to validate
 # MAGIC the Silver → Gold transition across all fact, dimension, and aggregate tables.
 # MAGIC
 # MAGIC | Suite | What it checks                                                      |
