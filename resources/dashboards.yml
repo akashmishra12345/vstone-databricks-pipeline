@@ -15,4 +15,3 @@ resources:
             dataset_catalog: ${var.catalog}
             dataset_schema: ${var.gold_schema}
             embed_credentials: false
-#bundle

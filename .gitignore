@@ -27,6 +27,5 @@ _delta_log/
 
 # Raw data files (live in Databricks Volumes, not Git)
 *.csv
-*.json
 *.xml
 *.parquet
