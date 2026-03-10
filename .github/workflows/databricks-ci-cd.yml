@@ -116,27 +116,27 @@ jobs:
       - name: Run Databricks Job
         run: databricks bundle run end_to_end_pipeline --target dev
 
-      # ========================================================================
-      # EMAIL NOTIFICATION (Using SMTP)
-      # ========================================================================
-      - name: Send Deployment Email
-        if: success()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com 
-          server_port: 465
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: " Databricks Deployment Successful: ${{ github.repository }}"
-          to: akash.r.mishra@v4c.ai
-          from: "GitHub Actions CI/CD"
-          body: |
-            Deployement complemented 
+      # # ========================================================================
+      # # EMAIL NOTIFICATION (Using SMTP)
+      # # ========================================================================
+      # - name: Send Deployment Email
+      #   if: success()
+      #   uses: dawidd6/action-send-mail@v3
+      #   with:
+      #     server_address: smtp.gmail.com 
+      #     server_port: 465
+      #     username: ${{ secrets.MAIL_USERNAME }}
+      #     password: ${{ secrets.MAIL_PASSWORD }}
+      #     subject: " Databricks Deployment Successful: ${{ github.repository }}"
+      #     to: akash.r.mishra@v4c.ai
+      #     from: "GitHub Actions CI/CD"
+      #     body: |
+      #       Deployement complemented 
 
-            Databricks pipeline 'end_to_end_pipeline' successfully deployed.
+      #       Databricks pipeline 'end_to_end_pipeline' successfully deployed.
             
-            Details:
-            - Repository: ${{ github.repository }}
-            - Branch: ${{ github.ref_name }}
-            - Commit: ${{ github.sha }}
-            - Run Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      #       Details:
+      #       - Repository: ${{ github.repository }}
+      #       - Branch: ${{ github.ref_name }}
+      #       - Commit: ${{ github.sha }}
+      #       - Run Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
