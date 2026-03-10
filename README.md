@@ -143,8 +143,6 @@ Contributions are welcome! Please follow these steps:
 4. Push to the branch: `git push origin feature/your-feature`
 5. Open a Pull Request
 
-For major changes, please open an issue first to discuss what you'd like to change. See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
-
 ---
 
 |---|---|
