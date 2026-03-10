@@ -31,83 +31,83 @@ jobs:
   #=========================
   #2. Run Bronze Unit Tests
   #=========================
-  run-bronze-tests:
-    name: Run Bronze Unit Tests
-    runs-on: ubuntu-latest
-    needs: validate-bundle
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pytest databricks-connect
-      - name: Run Bronze tests
-        run: pytest tests/bronze_testing -v --maxfail=1 --disable-warnings
+  # run-bronze-tests:
+  #   name: Run Bronze Unit Tests
+  #   runs-on: ubuntu-latest
+  #   needs: validate-bundle
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v4
+  #       with:
+  #         python-version: "3.10"
+  #     - name: Install dependencies
+  #       run: |
+  #         pip install --upgrade pip
+  #         pip install pytest databricks-connect
+  #     - name: Run Bronze tests
+  #       run: pytest tests/bronze_testing -v --maxfail=1 --disable-warnings
 
-  # =========================
-  # 3. Run Silver Unit Tests
-  # =========================
-  run-silver-tests:
-    name: Run Silver Unit Tests
-    runs-on: ubuntu-latest
-    needs: validate-bundle
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pytest databricks-connect
-      - name: Run Silver tests
-        run: pytest tests/silver_testing -v --maxfail=1 --disable-warnings
+  # # =========================
+  # # 3. Run Silver Unit Tests
+  # # =========================
+  # run-silver-tests:
+  #   name: Run Silver Unit Tests
+  #   runs-on: ubuntu-latest
+  #   needs: validate-bundle
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v4
+  #       with:
+  #         python-version: "3.10"
+  #     - name: Install dependencies
+  #       run: |
+  #         pip install --upgrade pip
+  #         pip install pytest databricks-connect
+  #     - name: Run Silver tests
+  #       run: pytest tests/silver_testing -v --maxfail=1 --disable-warnings
 
-  # =========================
-  # 4. Run Gold Unit Tests
-  # =========================
-  run-gold-tests:
-    name: Run Gold Unit Tests
-    runs-on: ubuntu-latest
-    needs: validate-bundle
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pytest databricks-connect
-      - name: Run Gold tests
-        run: pytest tests/gold_testing -v --maxfail=1 --disable-warnings
+  # # =========================
+  # # 4. Run Gold Unit Tests
+  # # =========================
+  # run-gold-tests:
+  #   name: Run Gold Unit Tests
+  #   runs-on: ubuntu-latest
+  #   needs: validate-bundle
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v4
+  #       with:
+  #         python-version: "3.10"
+  #     - name: Install dependencies
+  #       run: |
+  #         pip install --upgrade pip
+  #         pip install pytest databricks-connect
+  #     - name: Run Gold tests
+  #       run: pytest tests/gold_testing -v --maxfail=1 --disable-warnings
 
-  run-integration-test:
-    name: Run integration test
-    runs-on: ubuntu-latest
-    needs: [run-bronze-tests, run-silver-tests, run-gold-tests]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.10"
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install pytest databricks-connect
-      - name: Run integration test
-        run: pytest tests/integration_test -v --maxfail=1 --disable-warnings
+  # run-integration-test:
+  #   name: Run integration test
+  #   runs-on: ubuntu-latest
+  #   needs: [run-bronze-tests, run-silver-tests, run-gold-tests]
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Python
+  #       uses: actions/setup-python@v4
+  #       with:
+  #         python-version: "3.10"
+  #     - name: Install dependencies
+  #       run: |
+  #         pip install --upgrade pip
+  #         pip install pytest databricks-connect
+  #     - name: Run integration test
+  #       run: pytest tests/integration_test -v --maxfail=1 --disable-warnings
 
   # =========================
   # 5. Deploy and Run

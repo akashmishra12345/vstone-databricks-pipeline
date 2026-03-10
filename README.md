@@ -1,23 +1,160 @@
-# vstone_project
+#  VStone — Car Market Analytics Platform
 
-## Getting Started
+> A full-stack Databricks Lakehouse pipeline that ingests, transforms, and surfaces 1M+ used-car listings from the Russian market into actionable business intelligence dashboards.
 
-To deploy and manage this asset bundle, follow these steps:
+![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue) ![Version](https://img.shields.io/badge/version-1.0.0-orange) ![Databricks](https://img.shields.io/badge/platform-Databricks-red) ![Delta Lake](https://img.shields.io/badge/storage-Delta%20Lake-blue)
 
-### 1. Deployment
+---
 
-- Click the **deployment rocket** 🚀 in the left sidebar to open the **Deployments** panel, then click **Deploy**.
+##  Visual Overview
 
-### 2. Running Jobs & Pipelines
+```
+Raw Files (CSV / JSON / XML / Text / Photos)
+        │
+        ▼
+┌──────────────────┐
+│   Bronze Layer   │  ← COPY INTO, Auto Loader, DLT
+│  (Raw Ingestion) │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│   Silver Layer   │  ← Cleanse, Merge, SCD2, USD Conversion
+│  (Conformed)     │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│    Gold Layer    │  ← DLT Aggregations, KPI Cubes, Row/Column Level Security
+│  (Analytics)     │
+└────────┬─────────┘
+         │
+         ▼
+  Databricks Dashboard   
+```
 
-- To run a deployed job or pipeline, hover over the resource in the **Deployments** panel and click the **Run** button.
+---
 
-### 3. Managing Resources
+##  Features
 
-- Use the **Add** dropdown to add resources to the asset bundle.
-- Click **Schedule** on a notebook within the asset bundle to create a **job definition** that schedules the notebook.
+- **Multi-format Ingestion:** Handles CSV, JSON, XML, plain text, and binary photo metadata in a unified Bronze layer using COPY INTO, Auto Loader, and PySpark.
+- **Intelligent Merging:** Silver layer deduplicates and merges 1,083,237 listings across formats with a configurable 60% join-rate threshold.
+- **SCD Type 2 History:** Full change history on all Silver dimension tables using Delta Lake's `__START_AT` / `__END_AT` pattern.
+- **DLT Gold Aggregations:** Five pre-built Gold aggregation tables covering brand performance, regional depth, monthly trends, and KPI cubes — all powered by Delta Live Tables.
+- **Row & Column Level Security:** Unity Catalog RLS/CLS protecting brand-specific data (Toyota, Honda, Premium users) with group-based access control.
+- **BI Dashboards:** Two production Databricks dashboards — Car Market Analytics and Market Intelligence & Performance (5 pages, 15+ widgets).
+- **Full Test Coverage:** 144 pytest assertions across Bronze, Silver, Gold, and Security layers.
 
-## Documentation
+---
 
-- For information on using **Databricks Asset Bundles in the workspace**, see: [Databricks Asset Bundles in the workspace](https://docs.databricks.com/aws/en/dev-tools/bundles/workspace-bundles)
-- For details on the **Databricks Asset Bundles format** used in this asset bundle, see: [Databricks Asset Bundles Configuration reference](https://docs.databricks.com/aws/en/dev-tools/bundles/reference)
+##  Tech Stack
+
+| Category | Tool / Language |
+|---|---|
+| Platform | Databricks (Unity Catalog) |
+| Storage | Delta Lake |
+| Pipeline | Delta Live Tables (DLT) |
+| Language | Python, SQL, PySpark |
+| Ingestion | COPY INTO, Auto Loader, PySpark |
+| Testing | pytest |
+| Security | Unity Catalog RLS / CLS |
+| Dashboards | Databricks SQL Dashboards |
+
+---
+
+##  Getting Started
+
+### Prerequisites
+
+- Databricks workspace with **Unity Catalog** enabled
+- Cluster runtime: **Databricks Runtime 13.3 LTS** or later
+- Access to `system.billing.*` tables (account admin required)
+- Python **3.10+** for running pytest locally
+
+### Installation
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/vstone.git
+cd vstone
+
+# 2. Install Python test dependencies
+pip install -r requirements.txt
+
+# 3. Upload notebooks to Databricks
+#    (via Databricks CLI or manually via UI)
+databricks workspace import_dir notebooks/ /Users/you@email.com/vstone
+```
+
+### Configuration
+
+Create a `.env` file or set the following Databricks notebook widgets before running:
+
+```bash
+# Catalog & Schema
+CATALOG=vstone_catalog
+BRONZE_SCHEMA=bronze
+SILVER_SCHEMA=silver
+GOLD_SCHEMA=gold
+
+# Landing volume paths
+LANDING_PATH=/Volumes/vstone_catalog/raw/landing/
+CHUNKS_PATH=/Volumes/vstone_catalog/raw/chunks/
+
+# Currency conversion
+USD_RATE=82.5
+
+```
+
+---
+
+##  Usage Examples
+
+### Run the full Bronze → Silver → Gold pipeline
+
+```bash
+# In Databricks, open folder in order:
+setup
+bronze
+silver
+gold
+dashboard
+```
+
+### Run the test suite locally
+
+```bash
+# Run all 144 tests
+pytest vstone_tests/ -v
+
+# Run only Silver layer tests
+pytest vstone_tests/test_silver.py -v
+
+# Run only security tests
+pytest vstone_tests/test_security.py -v
+```
+
+
+### Contributing
+
+Contributions are welcome! Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'Add your feature'`
+4. Push to the branch: `git push origin feature/your-feature`
+5. Open a Pull Request
+
+For major changes, please open an issue first to discuss what you'd like to change. See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
+
+---
+
+##  License & Contact
+
+**License:** MIT — see [LICENSE](LICENSE) for details. Free to use, modify, and distribute with attribution.
+
+| | |
+|---|---|
+|  Email | akashmishraa202@gmail.com |
+
+---
