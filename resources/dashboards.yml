@@ -2,7 +2,7 @@ resources:
     dashboards:
         d1:
             display_name: Market_Intelligence_Performance
-            file_path: ../src/Dashboard/Market_Intelligence_Performance.lvdash.json
+            file_path: ../src/dashboards/Market_Intelligence_Performance.lvdash.json
             warehouse_id: ${var.sql_warehouse}
             dataset_catalog: ${var.catalog}
             dataset_schema: ${var.gold_schema}
@@ -10,7 +10,7 @@ resources:
         
         d2:
             display_name: Car_Market_Analytics
-            file_path: ../src/Dashboard/Car_Market_Analytics.lvdash.json
+            file_path: ../src/dashboards/Car_Market_Analytics.lvdash.json
             warehouse_id: ${var.sql_warehouse}
             dataset_catalog: ${var.catalog}
             dataset_schema: ${var.gold_schema}
