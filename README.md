@@ -53,7 +53,7 @@ Raw Files (CSV / JSON / XML / Text / Photos)
 | Storage | Delta Lake |
 | Pipeline | Delta Live Tables (DLT) |
 | Language | Python, SQL, PySpark |
-| Ingestion | COPY INTO, Auto Loader, PySpark |
+| Ingestion | COPY INTO, Auto Loader, PySpark, dlt|
 | Testing | pytest |
 | Security | Unity Catalog RLS / CLS |
 | Dashboards | Databricks SQL Dashboards |
