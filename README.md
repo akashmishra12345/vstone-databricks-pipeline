@@ -2,8 +2,6 @@
 
 > A full-stack Databricks Lakehouse pipeline that ingests, transforms, and surfaces 1M+ used-car listings from the Russian market into actionable business intelligence dashboards.
 
-![Build Status](https://img.shields.io/badge/build-passing-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue) ![Version](https://img.shields.io/badge/version-1.0.0-orange) ![Databricks](https://img.shields.io/badge/platform-Databricks-red) ![Delta Lake](https://img.shields.io/badge/storage-Delta%20Lake-blue)
-
 ---
 
 ##  Visual Overview
@@ -149,11 +147,6 @@ For major changes, please open an issue first to discuss what you'd like to chan
 
 ---
 
-##  License & Contact
-
-**License:** MIT — see [LICENSE](LICENSE) for details. Free to use, modify, and distribute with attribution.
-
-| | |
 |---|---|
 |  Email | akashmishraa202@gmail.com |
 
