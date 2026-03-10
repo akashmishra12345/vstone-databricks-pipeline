@@ -1,1 +1,32 @@
-.databricks/
+# VStone — Car Market Analytics Platform
+# .gitignore
+
+# Secrets & Databricks config
+.env
+databricks.cfg
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# Pytest
+.pytest_cache/
+.coverage
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Delta / Spark local artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+_delta_log/
+
+# Raw data files (live in Databricks Volumes, not Git)
+*.csv
+*.json
+*.xml
+*.parquet

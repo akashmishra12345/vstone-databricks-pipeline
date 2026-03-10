@@ -1,0 +1,9 @@
+# VStone — Car Market Analytics Platform
+
+pyspark==3.5.0        # Matches Databricks Runtime 13.3 LTS
+delta-spark==3.0.0    # DeltaTable, merge, SCD2
+pytest>=7.4.0         # Test runner (144 assertions)
+pytest-mock>=3.12.0   # MagicMock / dbutils stubbing
+python-dotenv>=1.0.0  # Load .env (CATALOG, USD_RATE, etc.)
+pandas>=2.1.0         # Local test fixtures
+pyarrow>=14.0.0       # Parquet / Delta local read-write
