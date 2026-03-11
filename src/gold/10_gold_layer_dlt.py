@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 10 · Gold Layer — Star Schema DLT Pipeline
 # MAGIC
-# MAGIC **Architecture:** Kimball Star Schema | All tables fully materialized
+# MAGIC **Architecture:** Kimball Star Schema 
 
 # COMMAND ----------
 
