@@ -16,10 +16,6 @@
 
 # COMMAND ----------
 
-pip install pytest
-
-# COMMAND ----------
-
 import pytest
 from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
