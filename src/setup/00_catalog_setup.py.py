@@ -20,6 +20,11 @@ GOLD = dbutils.widgets.get("gold_schema")
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC # Catalog, schema and volume creation
+
+# COMMAND ----------
+
 # Modular list for creation loop
 ALL_LAYERS = [RAW_SCHEMA, BRONZE, SILVER, GOLD, "security"]
 

@@ -3,7 +3,7 @@
 # MAGIC # 05 — Bronze XML Ingestion | PySpark Native
 # MAGIC
 # MAGIC Ingests `1_main_chunk_4.xml` into `vstone_catalog.bronze.listings_xml_pyspark`
-# MAGIC using **PySpark native XML support** (Spark 4.x built-in).
+# MAGIC using **PySpark native XML support** 
 
 # COMMAND ----------
 

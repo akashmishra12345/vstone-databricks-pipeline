@@ -6,7 +6,6 @@ import pandas as pd
 def convert(input_data, xml_file):
     """
     Modular function to convert CSV file or Pandas DataFrame to XML.
-    Vasu's Feedback: Modular, clean, and handles technical specs.
     """
     try:
         # Check if input is a file path (string) or a DataFrame

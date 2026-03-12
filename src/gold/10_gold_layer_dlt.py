@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # 10 · Gold Layer — Star Schema DLT Pipeline
 # MAGIC
-# MAGIC **Architecture:** Kimball Star Schema 
+# MAGIC **Architecture:**  Star Schema 
 
 # COMMAND ----------
 
@@ -230,7 +230,7 @@ def fact_listings():
             "color_g",
             "color_b",
 
-            # ── Silver-computed financials (1:1, no recalculation) ─────────────
+            # ── Silver-computed financials  ─────────────
             "price_rub",
             "price_usd",
             "price_category",
