@@ -51,9 +51,15 @@ S = lambda t: f"{CONFIG['catalog']}.{CONFIG['silver']}.{t}"
 # MAGIC Row-level normalisers applied identically to Bronze and Silver before SHA-256.
 # MAGIC Must mirror the exact transformations applied in `08_silver_transformation`.
 # MAGIC
-# MAGIC > **Fix applied:** `_date_as_date` casts Bronze dates to `DATE` before hashing,
-# MAGIC > matching Silver's `listing_date` storage type. Previous `_date` returned `TIMESTAMP`
-# MAGIC > which serialised as `'2022-03-15 00:00:00'` vs Silver's `'2022-03-15'` → 212,401 hash mismatches.
+# MAGIC > **Fix 1 — `_date` reverted to TIMESTAMP:** Pipeline uses `F.to_timestamp()` so Silver stores
+# MAGIC > `listing_date` as TIMESTAMP. Previous notebook used `_date_as_date` (cast to DATE) which
+# MAGIC > produced `'2022-03-15'` on Bronze vs `'2022-03-15 00:00:00'` on Silver → hash mismatch.
+# MAGIC > `_date` (TIMESTAMP) is correct — both sides serialise identically via `_norm()`.
+# MAGIC
+# MAGIC > **Fix 2 — `t2_pre_filter` mirrors pipeline exactly:** Pipeline `_LISTINGS_VALID_FILTER`
+# MAGIC > requires `listing_id NOT NULL AND price_rub NOT NULL AND listing_date NOT NULL`.
+# MAGIC > Old filter had `price_rub > 0` which excluded Silver rows where `price_rub = 0.0`
+# MAGIC > from the scoped Bronze set → those rows had no Bronze fingerprint match → 212,401 unmatched.
 
 # COMMAND ----------
 
@@ -91,23 +97,19 @@ def _price(col):   return F.expr(f"try_cast(regexp_replace(`{col}`, '[^0-9.]', '
 def _int2(col):    return F.expr(f"try_cast(try_cast(`{col}` as double) as int)")
 
 def _date(col):
-    """Parses Bronze date strings → TIMESTAMP (pipeline intermediate)."""
+    """
+    Parses Bronze date strings → TIMESTAMP.
+    Mirrors pipeline exactly: F.to_timestamp(date, 'dd.MM.yyyy') / 'yyyy-MM-dd T HH:mm:ss Z'
+    Silver stores listing_date as TIMESTAMP — _norm() serialises both as '2022-03-15 00:00:00'.
+
+    NOTE: Do NOT cast to DATE here. Pipeline uses F.to_timestamp (not F.to_date),
+    so Silver stores TIMESTAMP. Casting to DATE would produce '2022-03-15' on Bronze
+    but '2022-03-15 00:00:00' on Silver → hash mismatch.
+    """
     return F.coalesce(
         F.try_to_timestamp(F.col(f"`{col}`"), F.lit("dd.MM.yyyy")),
         F.try_to_timestamp(F.col(f"`{col}`"), F.lit("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     )
-
-def _date_as_date(col):
-    """
-    Parses Bronze date strings → DATE (matches Silver storage type).
-
-    FIX for T2 listings_silver_merged failure (212,401 unmatched rows):
-      _date() returns TIMESTAMP → _norm() serialises to '2022-03-15 00:00:00'
-      Silver stores listing_date as DATE → _norm() serialises to '2022-03-15'
-      Different strings → different SHA-256 hashes → every row fails.
-    Solution: cast to DATE before hashing so both sides produce '2022-03-15'.
-    """
-    return _date(col).cast("date")
 
 def _eng_vol(col): return F.expr(f"try_cast(regexp_replace(regexp_replace(`{col}`,' л',''),',','.') as double)")
 def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','') as int)")
@@ -132,15 +134,26 @@ REGISTRY = [
         "audit_cols"      : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
         "t1_dedup_exprs"  : [("id", "listing_id", _id_main)],
         "t1_use_simple_eq": False,
+
+        # FIX 2: Mirror pipeline's _LISTINGS_VALID_FILTER exactly:
+        #   listing_id NOT NULL AND price_rub NOT NULL AND listing_date NOT NULL
+        # Old filter had (price_rub > 0) which excluded price_rub=0.0 rows from Bronze
+        # but Silver keeps those rows (pipeline only requires NOT NULL, not > 0).
+        # Those rows existed in Silver but were absent from scoped Bronze → 212,401 unmatched.
         "t2_pre_filter"   : lambda df: df.filter(
-            F.col("listing_id").isNotNull() & (F.col("price_rub") > 0)
+            F.col("listing_id").isNotNull()   &
+            F.col("price_rub").isNotNull()    &
+            F.col("listing_date").isNotNull()
         ),
-        # FIX: _date_as_date (→ DATE) instead of _date (→ TIMESTAMP)
-        # Silver stores listing_date as DATE; _norm() serialises DATE as "2022-03-15"
-        # but TIMESTAMP as "2022-03-15 00:00:00" — different hashes → 212,401 mismatches
+
+        # FIX 1: Use _date (→ TIMESTAMP), NOT _date_as_date (→ DATE).
+        # Pipeline: F.to_timestamp(...) stores listing_date as TIMESTAMP in Silver.
+        # _norm() serialises TIMESTAMP as '2022-03-15 00:00:00' on both sides → match.
+        # Casting to DATE produces '2022-03-15' on Bronze vs '2022-03-15 00:00:00'
+        # on Silver → hash mismatch for every date-bearing row.
         "t2_select"       : [
             ("id",   "listing_id",   _id_main),
-            ("date", "listing_date", _date_as_date),   # ← was _date
+            ("date", "listing_date", _date),     # ← TIMESTAMP, mirrors F.to_timestamp in pipeline
             ("cost", "price_rub",    _price),
         ],
     },
