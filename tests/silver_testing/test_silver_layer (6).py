@@ -7,9 +7,9 @@
 # MAGIC | T1    | Reconciliation — Bronze row count balances Silver + Quarantine |
 # MAGIC | T2    | Subset integrity — every Silver PK exists in Bronze (Silver ⊆ Bronze) |
 # MAGIC | T3    | Audit columns — present, non-null, correct types |
-# MAGIC | T4    | Schema & domain constraints — column types, positive prices, valid dates, geo bounds |
+# MAGIC | T4    | Schema & domain constraints — hard-filter nulls, warn-only quality metrics, types, geo bounds |
 # MAGIC | T5    | Deduplication — no duplicate PKs survive into Silver |
-# MAGIC | T6    | Quarantine hygiene — quarantine_reason populated, dt present |
+# MAGIC | T6    | Quarantine hygiene — reason populated, dt present, disjoint from Silver |
 # MAGIC | T7    | Derived columns — price_usd, car_age_years, price_category, brand_std correctness |
 
 # COMMAND ----------
@@ -60,15 +60,15 @@ def _id_main(col): return F.expr(f"try_cast(`{col}` as long)").cast("string")
 def _id_dbl(col):  return F.col(f"`{col}`").cast("double").cast("long").cast("string")
 
 # ── String transforms (must match pandas UDF behaviour in pipeline) ───────────
-def _std(col):     # standardize_text: lower + strip; null → "none"
+def _std(col):    # standardize_text: lower + strip; null → "none"
     return F.when(F.col(f"`{col}`").isNull(), F.lit("none")) \
             .otherwise(F.lower(F.trim(F.col(f"`{col}`"))))
 
-def _clean(col):   # clean_text: strip only; null → "None"
+def _clean(col):  # clean_text: strip only; null → "None"
     return F.when(F.col(f"`{col}`").isNull(), F.lit("None")) \
             .otherwise(F.trim(F.col(f"`{col}`")))
 
-def _geo(col):     # standardize_geo: strip only; null → "None"
+def _geo(col):    # standardize_geo: strip only; null → "None"
     return F.when(F.col(f"`{col}`").isNull(), F.lit("None")) \
             .otherwise(F.trim(F.col(f"`{col}`")))
 
@@ -93,51 +93,50 @@ def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','')
 # MAGIC ## Registry
 # MAGIC Single source of truth for all 5 Silver tables.
 # MAGIC
-# MAGIC **`pk_bronze_col`** maps each Silver primary-key column back to the raw Bronze column
-# MAGIC and the cast function needed to make them comparable — used by T2 subset test.
+# MAGIC **Key design — two null-check keys replace the old `not_null_cols`:**
+# MAGIC - `filter_not_null_cols` — guarded by a real `.filter()` in the pipeline → **zero nulls enforced**
+# MAGIC - `dlt_warn_cols` — covered only by `@dlt.expect` (warn mode) → **nulls pass into Silver, tested by rate threshold**
+# MAGIC - `dlt_warn_positive_cols` — `@dlt.expect` positivity check (warn mode) → **tested by rate threshold**
+# MAGIC
+# MAGIC **`pk_bronze_col`** maps each Silver PK back to its Bronze raw column for the T2 subset test.
 
 # COMMAND ----------
 
 REGISTRY = [
     # ── listings_silver_merged ────────────────────────────────────────────────
+    # Hard filters (_LISTINGS_VALID_FILTER): listing_id, price_rub, listing_date
+    # @dlt.expect warn-only: price_rub > 0
     {
-        "name"         : "listings_silver_merged",
-        "silver"       : S("listings_silver_merged"),
-        "quarantine"   : S("listings_main_quarantine"),
-        "bronze_sources": [
-            B("listings_csv_copyinto"),
-            B("listings_json_autoloader"),
-            B("listings_xml_pyspark"),
-            B("listings_csv_dlt"),
+        "name"               : "listings_silver_merged",
+        "silver"             : S("listings_silver_merged"),
+        "quarantine"         : S("listings_main_quarantine"),
+        "bronze_sources"     : [
+            B("listings_csv_copyinto"), B("listings_json_autoloader"),
+            B("listings_xml_pyspark"),  B("listings_csv_dlt"),
         ],
-        "primary_key"  : ["listing_id"],
-        "audit_cols"   : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
-        # T1 dedup key — how Bronze IDs are normalised before counting unique keys
-        "t1_dedup_exprs": [("id", "listing_id", _id_main)],
-        "t1_use_simple_eq": False,
-        # T2 — map Silver PK column → (bronze_raw_col, cast_fn)
-        # We compare Silver listing_id against Bronze id cast the same way
-        "pk_bronze_col": {"listing_id": ("id", _id_main)},
-        # T4 domain checks
-        "filter_not_null_cols": ["listing_id", "listing_date", "price_rub"],
-        # price_rub > 0 is @dlt.expect warn-only — rows with price<=0 pass into Silver
-        "dlt_warn_cols"       : [],  # null-rate checks (none here — price_rub is in filter)
-        "dlt_warn_positive_cols": ["price_rub"],  # @dlt.expect("positive_price") — warn-only
-        "positive_cols" : ["price_rub"],
-        "timestamp_cols": ["listing_date", "silver_load_dt"],
-        # T7 derived column verification
-        "has_derived"   : True,
+        "primary_key"        : ["listing_id"],
+        "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
+        "t1_dedup_exprs"     : [("id", "listing_id", _id_main)],
+        "t1_use_simple_eq"   : False,
+        "pk_bronze_col"      : {"listing_id": ("id", _id_main)},
+        "filter_not_null_cols"   : ["listing_id", "listing_date", "price_rub"],
+        "dlt_warn_cols"          : [],
+        "dlt_warn_positive_cols" : ["price_rub"],
+        "timestamp_cols"         : ["listing_date", "silver_load_dt"],
+        "has_derived"            : True,
     },
 
     # ── car_catalog_transformation ────────────────────────────────────────────
+    # Hard filter: brand only
+    # @dlt.expect warn-only: model
     {
-        "name"         : "car_catalog_transformation",
-        "silver"       : S("car_catalog_transformation"),
-        "quarantine"   : S("car_catalog_quarantine"),
-        "bronze_sources": [B("car_catalog")],
-        "primary_key"  : ["brand", "model", "generation"],
-        "audit_cols"   : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
-        "t1_dedup_exprs": [
+        "name"               : "car_catalog_transformation",
+        "silver"             : S("car_catalog_transformation"),
+        "quarantine"         : S("car_catalog_quarantine"),
+        "bronze_sources"     : [B("car_catalog")],
+        "primary_key"        : ["brand", "model", "generation"],
+        "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
+        "t1_dedup_exprs"     : [
             ("Марка",              "brand",           _clean),
             ("Модель",             "model",           _clean),
             ("Поколение",          "generation",      _clean),
@@ -145,90 +144,95 @@ REGISTRY = [
             ("Объём двигателя",    "engine_volume_l", _eng_vol),
             ("Мощность двигателя", "engine_power_hp", _eng_pow),
         ],
-        "t1_use_simple_eq": True,
-        "pk_bronze_col": {
+        "t1_use_simple_eq"   : True,
+        "pk_bronze_col"      : {
             "brand"      : ("Марка",     _clean),
             "model"      : ("Модель",    _clean),
             "generation" : ("Поколение", _clean),
         },
-        "filter_not_null_cols": ["brand"],  # .filter(F.col("brand").isNotNull())
-        "dlt_warn_cols"       : ["model"],  # @dlt.expect warn-only
-        "positive_cols" : [],
-        "timestamp_cols": ["silver_load_dt"],
-        "has_derived"   : False,
+        "filter_not_null_cols"   : ["brand"],
+        "dlt_warn_cols"          : ["model"],
+        "dlt_warn_positive_cols" : [],
+        "timestamp_cols"         : ["silver_load_dt"],
+        "has_derived"            : False,
     },
 
     # ── listings_text_transformation ──────────────────────────────────────────
+    # Hard filter: listing_id only
+    # @dlt.expect warn-only: text
     {
-        "name"         : "listings_text_transformation",
-        "silver"       : S("listings_text_transformation"),
-        "quarantine"   : S("listings_text_quarantine"),
-        "bronze_sources": [B("listings_text")],
-        "primary_key"  : ["listing_id"],
-        "audit_cols"   : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
-        "t1_dedup_exprs": [("id", "listing_id", _id_dbl)],
-        "t1_use_simple_eq": False,
-        "pk_bronze_col": {"listing_id": ("id", _id_dbl)},
-        "filter_not_null_cols": ["listing_id"],  # .filter(F.col("listing_id").isNotNull())
-        "dlt_warn_cols"       : ["text"],  # @dlt.expect warn-only — NULLs allowed in Silver
-        "positive_cols" : [],
-        "timestamp_cols": ["silver_load_dt"],
-        "has_derived"   : False,
+        "name"               : "listings_text_transformation",
+        "silver"             : S("listings_text_transformation"),
+        "quarantine"         : S("listings_text_quarantine"),
+        "bronze_sources"     : [B("listings_text")],
+        "primary_key"        : ["listing_id"],
+        "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
+        "t1_dedup_exprs"     : [("id", "listing_id", _id_dbl)],
+        "t1_use_simple_eq"   : False,
+        "pk_bronze_col"      : {"listing_id": ("id", _id_dbl)},
+        "filter_not_null_cols"   : ["listing_id"],
+        "dlt_warn_cols"          : ["text"],
+        "dlt_warn_positive_cols" : [],
+        "timestamp_cols"         : ["silver_load_dt"],
+        "has_derived"            : False,
     },
 
     # ── listings_photo_transformation ─────────────────────────────────────────
+    # Hard filter: listing_id only
+    # @dlt.expect warn-only: photo_url
     {
-        "name"         : "listings_photo_transformation",
-        "silver"       : S("listings_photo_transformation"),
-        "quarantine"   : S("listings_photo_quarantine"),
-        "bronze_sources": [B("listings_photo")],
-        "primary_key"  : ["listing_id"],
-        "audit_cols"   : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
-        "t1_dedup_exprs": [
+        "name"               : "listings_photo_transformation",
+        "silver"             : S("listings_photo_transformation"),
+        "quarantine"         : S("listings_photo_quarantine"),
+        "bronze_sources"     : [B("listings_photo")],
+        "primary_key"        : ["listing_id"],
+        "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
+        "t1_dedup_exprs"     : [
             ("id",        "listing_id",      _id_dbl),
             ("photo_url", "photo_url_clean", _std),
         ],
-        "t1_use_simple_eq": False,
-        "pk_bronze_col": {"listing_id": ("id", _id_dbl)},
-        "filter_not_null_cols": ["listing_id"],  # .filter(F.col("listing_id").isNotNull())
-        "dlt_warn_cols"       : ["photo_url"],  # @dlt.expect warn-only
-        "positive_cols" : [],
-        "timestamp_cols": ["silver_load_dt"],
-        "has_derived"   : False,
+        "t1_use_simple_eq"   : False,
+        "pk_bronze_col"      : {"listing_id": ("id", _id_dbl)},
+        "filter_not_null_cols"   : ["listing_id"],
+        "dlt_warn_cols"          : ["photo_url"],
+        "dlt_warn_positive_cols" : [],
+        "timestamp_cols"         : ["silver_load_dt"],
+        "has_derived"            : False,
     },
 
     # ── geography_transformation ──────────────────────────────────────────────
+    # Hard filter: latitude, longitude  (via _is_valid_russia)
+    # @dlt.expect warn-only: city_name
     {
-        "name"         : "geography_transformation",
-        "silver"       : S("geography_transformation"),
-        "quarantine"   : S("geography_quarantine"),
-        "bronze_sources": [B("geo_locations")],
-        "primary_key"  : ["city_name"],
-        "audit_cols"   : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
-        "t1_dedup_exprs": [
+        "name"               : "geography_transformation",
+        "silver"             : S("geography_transformation"),
+        "quarantine"         : S("geography_quarantine"),
+        "bronze_sources"     : [B("geo_locations")],
+        "primary_key"        : ["city_name"],
+        "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
+        "t1_dedup_exprs"     : [
             ("name_padesh",   "city_name",         _geo),
             ("greate_padesh", "city_prepositional", _pass),
             ("lat",           "latitude",           _dbl),
             ("lon",           "longitude",          _dbl),
         ],
-        "t1_use_simple_eq": False,
-        "t1_valid_filter": lambda df: df.filter(
+        "t1_use_simple_eq"   : False,
+        "t1_valid_filter"    : lambda df: df.filter(
             F.col("latitude").isNotNull()  &
             F.col("longitude").isNotNull() &
             F.col("latitude").between(41, 82) &
             F.col("longitude").between(19, 180)
         ),
-        "pk_bronze_col": {"city_name": ("name_padesh", _geo)},
-        "filter_not_null_cols": ["latitude", "longitude"],  # enforced by _is_valid_russia() filter
-        "dlt_warn_cols"       : ["city_name"],  # @dlt.expect warn-only
-        "positive_cols" : [],
-        "timestamp_cols": ["silver_load_dt"],
-        "has_derived"   : False,
+        "pk_bronze_col"      : {"city_name": ("name_padesh", _geo)},
+        "filter_not_null_cols"   : ["latitude", "longitude"],
+        "dlt_warn_cols"          : ["city_name"],
+        "dlt_warn_positive_cols" : [],
+        "timestamp_cols"         : ["silver_load_dt"],
+        "has_derived"            : False,
     },
 ]
 
 REGISTRY_PARAMS = [pytest.param(e, id=e["name"]) for e in REGISTRY]
-
 print(f"Registry loaded — {len(REGISTRY)} tables registered.")
 
 # COMMAND ----------
@@ -250,7 +254,7 @@ def _union_bronze(spark, sources: list):
 
 # MAGIC %md
 # MAGIC ## T1 — Reconciliation
-# MAGIC Bronze row count must balance Silver + Quarantine (allowing for deduplication).
+# MAGIC Bronze row count must balance Silver + Quarantine (accounting for deduplication).
 
 # COMMAND ----------
 
@@ -266,7 +270,7 @@ def test_t1_reconciliation(spark, entry):
     actual       = silver_cnt + quar_cnt
 
     if entry.get("t1_use_simple_eq", False):
-        dups  = bronze_total - actual
+        dups = bronze_total - actual
         assert dups >= 0, (
             f"[{entry['name']}] Row count mismatch — "
             f"Raw: {bronze_total:,} | Actual(S+Q): {actual:,} | Dups Dropped: {dups:,}"
@@ -277,18 +281,10 @@ def test_t1_reconciliation(spark, entry):
         df_dedup    = df_bronze.select(
             [tfn(col).alias(alias) for col, alias, tfn in dedup_exprs]
         )
-        # Apply geography valid filter before counting if declared
         if entry.get("t1_valid_filter"):
-            valid   = entry["t1_valid_filter"](df_dedup).distinct().count()
-            invalid = df_dedup.filter(
-                ~(
-                    F.col("latitude").isNotNull()  &
-                    F.col("longitude").isNotNull() &
-                    F.col("latitude").between(41, 82) &
-                    F.col("longitude").between(19, 180)
-                )
-            ).distinct().count()
-            unique_exp = valid + invalid
+            df_valid   = entry["t1_valid_filter"](df_dedup)
+            df_invalid = df_dedup.join(df_valid, on=list(df_valid.columns), how="left_anti")
+            unique_exp = df_valid.distinct().count() + df_invalid.distinct().count()
         else:
             unique_exp = df_dedup.distinct().count()
 
@@ -311,9 +307,9 @@ def test_t1_quarantine_has_rejection_reasons(spark, entry):
     """T1 — Every row in Quarantine must have a non-null quarantine_reason."""
     df = spark.read.table(entry["quarantine"])
     if df.count() > 0 and "quarantine_reason" in df.columns:
-        null_reasons = df.filter(F.col("quarantine_reason").isNull()).count()
-        assert null_reasons == 0, (
-            f"[{entry['name']}] {null_reasons:,} quarantine rows missing quarantine_reason."
+        null_cnt = df.filter(F.col("quarantine_reason").isNull()).count()
+        assert null_cnt == 0, (
+            f"[{entry['name']}] {null_cnt:,} quarantine rows missing quarantine_reason."
         )
 
 # COMMAND ----------
@@ -321,13 +317,11 @@ def test_t1_quarantine_has_rejection_reasons(spark, entry):
 # MAGIC %md
 # MAGIC ## T2 — Silver PK ⊆ Bronze PK (Subset Integrity)
 # MAGIC
-# MAGIC **Replaces the row-to-row SHA-256 hash test.**
+# MAGIC Replaces the old row-to-row SHA-256 hash test.
 # MAGIC
-# MAGIC Silver is allowed to transform, enrich, and derive new columns from Bronze — row hashes
-# MAGIC will naturally differ. What must hold is that every Silver primary key (e.g. `listing_id`)
-# MAGIC originates from a real Bronze record — Silver cannot invent new keys.
-# MAGIC
-# MAGIC This test uses a `left_anti` join: Silver PKs that find **no match** in Bronze are violations.
+# MAGIC Silver transforms, enriches, and derives new columns from Bronze — row hashes will naturally
+# MAGIC differ after transformation. What must hold is that every Silver primary key originates from
+# MAGIC a real Bronze record. Uses `left_anti` join: Silver PKs with no Bronze match are violations.
 
 # COMMAND ----------
 
@@ -338,18 +332,16 @@ def test_t2_silver_pks_are_subset_of_bronze(spark, entry):
     Silver ⊆ Bronze on primary key(s). Nothing may be invented.
 
     Strategy:
-      1. Extract and cast Bronze PK column(s) using the same cast function as the pipeline.
-      2. Extract Silver PK column(s) as-is.
-      3. left_anti join Silver onto Bronze on the PK(s).
-      4. Assert the anti-join result is empty.
+      1. Cast Bronze PK column(s) using the same function as the pipeline.
+      2. left_anti join Silver PKs onto Bronze PKs.
+      3. Assert the anti-join result is empty — no orphaned Silver keys.
     """
-    pk_map     = entry["pk_bronze_col"]          # {silver_col: (bronze_raw_col, cast_fn)}
-    silver_pks = entry["primary_key"]             # list of Silver column names
+    pk_map    = entry["pk_bronze_col"]   # {silver_col: (bronze_raw_col, cast_fn)}
+    silver_pks = entry["primary_key"]
 
-    df_silver = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
-
-    # Build normalised Bronze PK DataFrame from all Bronze sources
+    df_silver     = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
     df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
+
     bronze_select = [
         pk_map[s_col][1](pk_map[s_col][0]).alias(s_col)
         for s_col in silver_pks
@@ -367,7 +359,7 @@ def test_t2_silver_pks_are_subset_of_bronze(spark, entry):
 
 # MAGIC %md
 # MAGIC ## T3 — Audit Columns
-# MAGIC Verifies that all audit metadata columns are present, non-null, and correctly typed.
+# MAGIC All audit metadata columns must be present, non-null, and correctly typed.
 
 # COMMAND ----------
 
@@ -419,14 +411,15 @@ def test_t3_primary_key_non_null(spark, entry):
 # MAGIC %md
 # MAGIC ## T4 — Schema & Domain Constraints
 # MAGIC
-# MAGIC **`filter_not_null_cols`** — columns protected by an actual `.filter()` call in the pipeline.
-# MAGIC These rows are *dropped* if null, so Silver must have zero nulls here.
+# MAGIC **`filter_not_null_cols`** — protected by an actual `.filter()` call in the pipeline.
+# MAGIC Rows are physically dropped when null → Silver must have **zero nulls**. A null here means the pipeline filter is broken.
 # MAGIC
-# MAGIC **`dlt_warn_cols`** — columns covered only by `@dlt.expect` (warn mode).
-# MAGIC Null rows are **not dropped** — they pass through to Silver. These are tested as a
-# MAGIC data-quality metric (null rate reported) rather than a hard assertion.
+# MAGIC **`dlt_warn_cols`** — covered only by `@dlt.expect` (warn mode).
+# MAGIC Null rows are **not dropped** — they legitimately pass into Silver.
+# MAGIC Tested as a quality metric: fails only if null rate exceeds 50% (signals catastrophic upstream data loss).
 # MAGIC
-# MAGIC Other checks: column types, positive prices, valid dates, Russia geo bounds.
+# MAGIC **`dlt_warn_positive_cols`** — `@dlt.expect` positivity check (warn mode).
+# MAGIC Rows with value ≤ 0 pass into Silver. Tested by rate threshold.
 
 # COMMAND ----------
 
@@ -434,8 +427,8 @@ def test_t3_primary_key_non_null(spark, entry):
 def test_t4_hard_filter_columns_not_null(spark, entry):
     """
     T4 — Columns in 'filter_not_null_cols' must have zero NULLs in Silver.
-    These are guarded by an explicit .filter() call in 08_silver_transformation,
-    so a NULL here means the pipeline filter is broken.
+    These are guarded by an explicit .filter() call in 08_silver_transformation.
+    A NULL here means the pipeline filter is broken — this is a hard assertion.
     """
     df = spark.read.table(entry["silver"])
     for col in entry.get("filter_not_null_cols", []):
@@ -450,13 +443,10 @@ def test_t4_hard_filter_columns_not_null(spark, entry):
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t4_dlt_warn_columns_null_rate(spark, entry):
     """
-    T4 — Columns in 'dlt_warn_cols' are covered by @dlt.expect (warn-only).
-    NULLs are allowed in Silver; this test reports the null rate as a quality metric
-    and fails only if the null rate exceeds MAX_WARN_NULL_RATE (default 50%).
-    This catches catastrophic data loss (e.g. source schema change) without
-    false-positives from naturally sparse columns.
+    T4 — Columns in 'dlt_warn_cols' use @dlt.expect (warn-only).
+    NULLs are allowed in Silver — this test fails only if null rate exceeds 50%.
     """
-    MAX_WARN_NULL_RATE = 0.50  # >50% nulls on a warn column is a pipeline smell
+    MAX_NULL_RATE = 0.50
     df    = spark.read.table(entry["silver"])
     total = df.count()
     if total == 0:
@@ -465,10 +455,10 @@ def test_t4_dlt_warn_columns_null_rate(spark, entry):
         if col in df.columns:
             null_cnt  = df.filter(F.col(col).isNull()).count()
             null_rate = null_cnt / total
-            assert null_rate <= MAX_WARN_NULL_RATE, (
-                f"[{entry['name']}] Warn-only column '{col}' has a NULL rate of "
-                f"{null_rate:.1%} ({null_cnt:,}/{total:,} rows) — "
-                f"exceeds threshold of {MAX_WARN_NULL_RATE:.0%}. "
+            assert null_rate <= MAX_NULL_RATE, (
+                f"[{entry['name']}] Warn-only column '{col}' null rate is "
+                f"{null_rate:.1%} ({null_cnt:,}/{total:,}) — "
+                f"exceeds threshold of {MAX_NULL_RATE:.0%}. "
                 "Possible source schema change or upstream data loss."
             )
 
@@ -476,11 +466,8 @@ def test_t4_dlt_warn_columns_null_rate(spark, entry):
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t4_dlt_warn_positive_columns_rate(spark, entry):
     """
-    T4 — Columns in 'dlt_warn_positive_cols' use @dlt.expect (warn-only) for positivity.
-    Rows with value <= 0 are NOT dropped — they pass into Silver.
-    This test reports the bad-value rate and fails only if it exceeds MAX_BAD_RATE (50%).
-    Catches catastrophic pricing data corruption without false-positives on legitimately
-    sparse or zero-price records.
+    T4 — Columns in 'dlt_warn_positive_cols' use @dlt.expect positivity (warn-only).
+    Rows with value <= 0 pass into Silver — fails only if bad-value rate exceeds 50%.
     """
     MAX_BAD_RATE = 0.50
     df    = spark.read.table(entry["silver"])
@@ -494,16 +481,13 @@ def test_t4_dlt_warn_positive_columns_rate(spark, entry):
             assert bad_rate <= MAX_BAD_RATE, (
                 f"[{entry['name']}] Warn-only positive column '{col}' has {bad_rate:.1%} "
                 f"({bad_cnt:,}/{total:,}) rows with value <= 0 — "
-                f"exceeds threshold of {MAX_BAD_RATE:.0%}. "
-                "Possible pricing data corruption upstream."
+                f"exceeds threshold of {MAX_BAD_RATE:.0%}."
             )
 
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t4_timestamp_columns_are_correct_type(spark, entry):
-    """
-    T4 — Columns in 'timestamp_cols' must be TIMESTAMP type, not string or date.
-    """
+    """T4 — Columns in 'timestamp_cols' must be TIMESTAMP type, not string or date."""
     df     = spark.read.table(entry["silver"])
     dtypes = dict(df.dtypes)
     for col in entry.get("timestamp_cols", []):
@@ -517,50 +501,39 @@ def test_t4_timestamp_columns_are_correct_type(spark, entry):
 def test_t4_geography_russia_bounds(spark):
     """
     T4 — All rows in geography_transformation must be within Russia bounding box
-    (lat 41-82N, lon 19-180E). Mirrors the @dlt.expect("russia_bounds") constraint
-    which is backed by the _is_valid_russia() filter — so zero violations expected.
+    (lat 41-82N, lon 19-180E). Backed by _is_valid_russia() hard filter — zero violations.
     """
     df  = spark.read.table(S("geography_transformation"))
     bad = df.filter(
-        ~(
-            F.col("latitude").between(41, 82) &
-            F.col("longitude").between(19, 180)
-        )
+        ~(F.col("latitude").between(41, 82) & F.col("longitude").between(19, 180))
     ).count()
     assert bad == 0, (
-        f"[geography_transformation] {bad:,} rows outside Russia bounding box "
-        "(lat 41-82N, lon 19-180E)."
+        f"[geography_transformation] {bad:,} rows outside Russia bounding box."
     )
 
 
 def test_t4_listing_date_range_is_reasonable(spark):
-    """
-    T4 — listing_date in listings_silver_merged must fall within a plausible range.
-    Any listing dated before 2000 or after today is likely a parse error.
-    """
+    """T4 — listing_date must fall within 2000 – now. Outside = parse error."""
     df  = spark.read.table(S("listings_silver_merged"))
     bad = df.filter(
-        F.col("listing_date").isNotNull() &
-        (
+        F.col("listing_date").isNotNull() & (
             (F.year(F.col("listing_date")) < 2000) |
             (F.col("listing_date") > F.current_timestamp())
         )
     ).count()
     assert bad == 0, (
-        f"[listings_silver_merged] {bad:,} rows with listing_date outside "
-        "plausible range (2000 - now)."
+        f"[listings_silver_merged] {bad:,} rows with listing_date outside plausible range."
     )
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## T5 — Deduplication
-# MAGIC Verifies that `dropDuplicates` in the pipeline actually removed all duplicate PKs from Silver.
-# MAGIC Tables where multiple rows per PK are expected (e.g. photos) are skipped automatically.
+# MAGIC Verifies that `dropDuplicates` in the pipeline removed all duplicate PKs from Silver.
 
 # COMMAND ----------
 
-# Tables where PK uniqueness is NOT expected (one listing can have many photos)
+# Tables where PK uniqueness is intentionally NOT enforced
 _MULTI_ROW_PK_TABLES = {"listings_photo_transformation", "car_catalog_transformation"}
 
 
@@ -571,9 +544,7 @@ def test_t5_no_duplicate_primary_keys_in_silver(spark, entry):
     Skipped for tables with intentionally non-unique PKs (photos, catalog).
     """
     if entry["name"] in _MULTI_ROW_PK_TABLES:
-        pytest.skip(
-            f"[{entry['name']}] PK uniqueness not enforced — skipping dedup check."
-        )
+        pytest.skip(f"[{entry['name']}] PK uniqueness not enforced — skipping.")
 
     df    = spark.read.table(entry["silver"])
     total = df.count()
@@ -582,26 +553,23 @@ def test_t5_no_duplicate_primary_keys_in_silver(spark, entry):
     assert total == uniq, (
         f"[{entry['name']}] Duplicate PKs detected — "
         f"total rows: {total:,}, distinct PKs: {uniq:,}, "
-        f"duplicates: {total - uniq:,}. PKs: {entry['primary_key']}."
+        f"duplicates: {total - uniq:,}."
     )
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## T6 — Quarantine Hygiene
-# MAGIC Verifies that every quarantine table is well-formed: reason populated, timestamp present,
-# MAGIC and no valid rows accidentally quarantined.
+# MAGIC Every quarantine table must be well-formed: reason populated, timestamp present, disjoint from Silver.
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t6_quarantine_reason_non_null(spark, entry):
-    """
-    T6 — Every row in the quarantine table must carry a non-null quarantine_reason.
-    """
+    """T6 — Every row in quarantine must carry a non-null quarantine_reason."""
     df = spark.read.table(entry["quarantine"])
     if df.count() == 0:
-        return  # empty quarantine is fine
+        return
     assert "quarantine_reason" in df.columns, (
         f"[{entry['name']}] quarantine table missing 'quarantine_reason' column."
     )
@@ -613,9 +581,7 @@ def test_t6_quarantine_reason_non_null(spark, entry):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t6_quarantine_dt_present_and_non_null(spark, entry):
-    """
-    T6 — quarantine_dt must exist and be non-null in every quarantine table that has rows.
-    """
+    """T6 — quarantine_dt must exist and be non-null in every quarantine table that has rows."""
     df = spark.read.table(entry["quarantine"])
     if df.count() == 0:
         return
@@ -632,13 +598,10 @@ def test_t6_quarantine_dt_present_and_non_null(spark, entry):
 def test_t6_silver_and_quarantine_pks_are_disjoint(spark, entry):
     """
     T6 — A PK must not appear in both Silver and Quarantine simultaneously.
-    A record should be routed to exactly one destination.
-    Skipped for tables where PK uniqueness is not enforced (photos, catalog).
+    Skipped for tables where PK uniqueness is not enforced.
     """
     if entry["name"] in _MULTI_ROW_PK_TABLES:
-        pytest.skip(
-            f"[{entry['name']}] PK uniqueness not enforced — skipping disjoint check."
-        )
+        pytest.skip(f"[{entry['name']}] PK uniqueness not enforced — skipping disjoint check.")
 
     pk_cols   = entry["primary_key"]
     df_silver = spark.read.table(entry["silver"]).select(*pk_cols)
@@ -647,24 +610,20 @@ def test_t6_silver_and_quarantine_pks_are_disjoint(spark, entry):
     overlap = df_silver.join(df_quar, on=pk_cols, how="inner").count()
     assert overlap == 0, (
         f"[{entry['name']}] {overlap:,} PKs appear in both Silver and Quarantine. "
-        f"Each record must be routed to exactly one. PKs: {pk_cols}."
+        "Each record must be routed to exactly one destination."
     )
 
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T7 — Derived Column Correctness (listings_silver_merged)
-# MAGIC Validates that enrichment columns computed by the pipeline are mathematically correct
-# MAGIC and internally consistent with source columns in the same Silver row.
+# MAGIC ## T7 — Derived Column Correctness (`listings_silver_merged`)
+# MAGIC Validates enrichment columns are mathematically consistent with source columns in the same Silver row.
 
 # COMMAND ----------
 
 def test_t7_price_usd_derived_correctly(spark):
-    """
-    T7 — price_usd must equal round(price_rub / 82.5, 2) for every non-null row.
-    Mirrors: .withColumn("price_usd", F.round(F.col("price_rub") / USD_RATE, 2))
-    """
-    df = spark.read.table(S("listings_silver_merged"))
+    """T7 — price_usd must equal round(price_rub / 82.5, 2) for every non-null row."""
+    df  = spark.read.table(S("listings_silver_merged"))
     bad = df.filter(
         F.col("price_rub").isNotNull() & F.col("price_usd").isNotNull() &
         (F.abs(F.col("price_usd") - F.round(F.col("price_rub") / USD_RATE, 2)) > 0.01)
@@ -675,11 +634,8 @@ def test_t7_price_usd_derived_correctly(spark):
 
 
 def test_t7_car_age_years_derived_correctly(spark):
-    """
-    T7 — car_age_years must equal (2023 - manufacture_year) for every non-null row.
-    Mirrors: .withColumn("car_age_years", F.lit(2023) - F.col("manufacture_year"))
-    """
-    df = spark.read.table(S("listings_silver_merged"))
+    """T7 — car_age_years must equal (2023 - manufacture_year) for every non-null row."""
+    df  = spark.read.table(S("listings_silver_merged"))
     bad = df.filter(
         F.col("manufacture_year").isNotNull() & F.col("car_age_years").isNotNull() &
         (F.col("car_age_years") != (F.lit(2023) - F.col("manufacture_year").cast("integer")))
@@ -690,12 +646,9 @@ def test_t7_car_age_years_derived_correctly(spark):
 
 
 def test_t7_price_category_values_are_valid(spark):
-    """
-    T7 — price_category must only contain the 5 defined labels.
-    Mirrors the F.when(...).otherwise("UNKNOWN") logic in _transform_listings.
-    """
+    """T7 — price_category must only contain the 5 defined labels."""
     valid_cats = {"BUDGET", "MID_RANGE", "PREMIUM", "LUXURY", "UNKNOWN"}
-    df = spark.read.table(S("listings_silver_merged"))
+    df  = spark.read.table(S("listings_silver_merged"))
     bad = df.filter(
         F.col("price_category").isNotNull() &
         ~F.col("price_category").isin(list(valid_cats))
@@ -707,22 +660,17 @@ def test_t7_price_category_values_are_valid(spark):
 
 
 def test_t7_price_category_bucket_boundaries(spark):
-    """
-    T7 — price_category bucket labels must match the threshold boundaries exactly.
-    e.g. price_rub < 300000 → BUDGET; 300000–700000 → MID_RANGE, etc.
-    """
+    """T7 — price_category bucket labels must match the pipeline threshold boundaries exactly."""
     df = spark.read.table(S("listings_silver_merged")).filter(
         F.col("price_rub").isNotNull() & F.col("price_category").isNotNull()
     )
-
     checks = [
-        ("BUDGET",    (F.col("price_rub") < 300_000)),
-        ("MID_RANGE", (F.col("price_rub").between(300_000, 700_000))),
-        ("PREMIUM",   (F.col("price_rub").between(700_001, 1_500_000))),
-        ("LUXURY",    (F.col("price_rub") > 1_500_000)),
+        ("BUDGET",    F.col("price_rub") < 300_000),
+        ("MID_RANGE", F.col("price_rub").between(300_000, 700_000)),
+        ("PREMIUM",   F.col("price_rub").between(700_001, 1_500_000)),
+        ("LUXURY",    F.col("price_rub") > 1_500_000),
     ]
     for label, condition in checks:
-        # Rows labelled as <label> that DON'T satisfy the expected price range
         bad = df.filter((F.col("price_category") == label) & ~condition).count()
         assert bad == 0, (
             f"[listings_silver_merged] {bad:,} rows labelled '{label}' "
@@ -731,11 +679,8 @@ def test_t7_price_category_bucket_boundaries(spark):
 
 
 def test_t7_brand_std_is_uppercase_brand(spark):
-    """
-    T7 — brand_std must equal upper(trim(brand)) for all non-null rows.
-    Mirrors: .withColumn("brand_std", F.upper(F.trim(F.col("brand"))))
-    """
-    df = spark.read.table(S("listings_silver_merged"))
+    """T7 — brand_std must equal upper(trim(brand)) for all non-null rows."""
+    df  = spark.read.table(S("listings_silver_merged"))
     bad = df.filter(
         F.col("brand").isNotNull() & F.col("brand_std").isNotNull() &
         (F.col("brand_std") != F.upper(F.trim(F.col("brand"))))
@@ -746,11 +691,7 @@ def test_t7_brand_std_is_uppercase_brand(spark):
 
 
 def test_t7_listing_year_month_match_listing_date(spark):
-    """
-    T7 — listing_year and listing_month must be consistent with listing_date.
-    Mirrors: .withColumn("listing_year", F.date_format("listing_date", "yyyy").cast("integer"))
-             .withColumn("listing_month", F.date_format("listing_date", "MM").cast("integer"))
-    """
+    """T7 — listing_year and listing_month must be consistent with listing_date."""
     df = spark.read.table(S("listings_silver_merged")).filter(
         F.col("listing_date").isNotNull()
     )
