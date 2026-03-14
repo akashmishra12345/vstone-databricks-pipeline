@@ -208,7 +208,7 @@ REGISTRY = [
         "silver"             : S("geography_transformation"),
         "quarantine"         : S("geography_quarantine"),
         "bronze_sources"     : [B("geo_locations")],
-        "primary_key"        : ["city_name"],
+        "primary_key"        : ["city_name", "city_prepositional"],  # dropDuplicates key in pipeline
         "audit_cols"         : ["bronze_load_dt", "bronze_source_file", "silver_load_dt"],
         "t1_dedup_exprs"     : [
             ("name_padesh",   "city_name",         _geo),
@@ -223,7 +223,10 @@ REGISTRY = [
             F.col("latitude").between(41, 82) &
             F.col("longitude").between(19, 180)
         ),
-        "pk_bronze_col"      : {"city_name": ("name_padesh", _geo)},
+        "pk_bronze_col"      : {
+            "city_name"          : ("name_padesh",   _geo),
+            "city_prepositional" : ("greate_padesh", _pass),
+        },
         "filter_not_null_cols"   : ["latitude", "longitude"],
         "dlt_warn_cols"          : ["city_name"],
         "dlt_warn_positive_cols" : [],
