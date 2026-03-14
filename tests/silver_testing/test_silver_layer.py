@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Silver Layer Test Suite
+# MAGIC # Silver Layer — pytest Test Suite
 # MAGIC Implements a PyTest framework to validate
 # MAGIC Reconciliation, Row Integrity (SHA-256), and Audit Columns
 # MAGIC across all 5 Silver tables.
@@ -36,9 +36,9 @@ def spark():
 
 
 CONFIG = {
-    "catalog":     "vstone_catalog",
-    "bronze":      "bronze",
-    "silver":      "silver",
+    "catalog": "vstone_catalog",
+    "bronze":  "bronze",
+    "silver":  "silver",
 }
 
 B = lambda t: f"{CONFIG['catalog']}.{CONFIG['bronze']}.{t}"
@@ -50,6 +50,10 @@ S = lambda t: f"{CONFIG['catalog']}.{CONFIG['silver']}.{t}"
 # MAGIC ## Transform Helpers
 # MAGIC Row-level normalisers applied identically to Bronze and Silver before SHA-256.
 # MAGIC Must mirror the exact transformations applied in `08_silver_transformation`.
+# MAGIC
+# MAGIC > **Fix applied:** `_date_as_date` casts Bronze dates to `DATE` before hashing,
+# MAGIC > matching Silver's `listing_date` storage type. Previous `_date` returned `TIMESTAMP`
+# MAGIC > which serialised as `'2022-03-15 00:00:00'` vs Silver's `'2022-03-15'` → 212,401 hash mismatches.
 
 # COMMAND ----------
 
@@ -85,11 +89,26 @@ def _coal(col):  return F.coalesce(F.col(f"`{col}`").cast("string"), F.lit(""))
 # ── Numeric / domain transforms ───────────────────────────────────────────────
 def _price(col):   return F.expr(f"try_cast(regexp_replace(`{col}`, '[^0-9.]', '') as double)")
 def _int2(col):    return F.expr(f"try_cast(try_cast(`{col}` as double) as int)")
+
 def _date(col):
+    """Parses Bronze date strings → TIMESTAMP (pipeline intermediate)."""
     return F.coalesce(
         F.try_to_timestamp(F.col(f"`{col}`"), F.lit("dd.MM.yyyy")),
         F.try_to_timestamp(F.col(f"`{col}`"), F.lit("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     )
+
+def _date_as_date(col):
+    """
+    Parses Bronze date strings → DATE (matches Silver storage type).
+
+    FIX for T2 listings_silver_merged failure (212,401 unmatched rows):
+      _date() returns TIMESTAMP → _norm() serialises to '2022-03-15 00:00:00'
+      Silver stores listing_date as DATE → _norm() serialises to '2022-03-15'
+      Different strings → different SHA-256 hashes → every row fails.
+    Solution: cast to DATE before hashing so both sides produce '2022-03-15'.
+    """
+    return _date(col).cast("date")
+
 def _eng_vol(col): return F.expr(f"try_cast(regexp_replace(regexp_replace(`{col}`,' л',''),',','.') as double)")
 def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','') as int)")
 
@@ -116,9 +135,12 @@ REGISTRY = [
         "t2_pre_filter"   : lambda df: df.filter(
             F.col("listing_id").isNotNull() & (F.col("price_rub") > 0)
         ),
+        # FIX: _date_as_date (→ DATE) instead of _date (→ TIMESTAMP)
+        # Silver stores listing_date as DATE; _norm() serialises DATE as "2022-03-15"
+        # but TIMESTAMP as "2022-03-15 00:00:00" — different hashes → 212,401 mismatches
         "t2_select"       : [
             ("id",   "listing_id",   _id_main),
-            ("date", "listing_date", _date),
+            ("date", "listing_date", _date_as_date),   # ← was _date
             ("cost", "price_rub",    _price),
         ],
     },
@@ -140,7 +162,7 @@ REGISTRY = [
             ("Мощность двигателя", "engine_power_hp", _eng_pow),
         ],
         "t1_use_simple_eq": True,
-        "pk_unique_check" : False,   # catalog has multiple trims per brand/model/generation
+        "pk_unique_check" : False,
         "t2_pre_filter"   : lambda df: df.filter(
             F.col("brand").isNotNull() & F.col("model").isNotNull()
         ),
@@ -181,7 +203,7 @@ REGISTRY = [
             ("photo_url", "photo_url_clean", _std),
         ],
         "t1_use_simple_eq": False,
-        "pk_unique_check" : False,   # one listing can have multiple photos
+        "pk_unique_check" : False,
         "t2_pre_filter"   : lambda df: df.filter(F.col("listing_id").isNotNull()),
         "t2_select"       : [
             ("id",        "listing_id", _id_dbl),
@@ -274,9 +296,9 @@ def test_t1_reconciliation(spark, entry):
             f"Raw: {bronze_total:,} | Actual(S+Q): {actual:,} | Dups Dropped: {dups:,}"
         )
     else:
-        df_bronze  = _union_bronze(spark, entry["bronze_sources"])
+        df_bronze   = _union_bronze(spark, entry["bronze_sources"])
         dedup_exprs = entry.get("t1_dedup_exprs", [])
-        df_dedup   = df_bronze.select(
+        df_dedup    = df_bronze.select(
             [tfn(col).alias(alias) for col, alias, tfn in dedup_exprs]
         )
         unique_exp = df_dedup.distinct().count()
@@ -386,7 +408,6 @@ def test_t3_silver_load_dt_is_timestamp(spark, entry):
             f"[{entry['name']}] silver_load_dt is '{dtypes['silver_load_dt']}', "
             "expected 'timestamp'."
         )
-
 
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
