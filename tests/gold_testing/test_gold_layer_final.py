@@ -7,8 +7,8 @@
 # MAGIC | T1 | Reconciliation — Gold row counts match Silver source of truth |
 # MAGIC | T2 | Row Integrity — every Silver key present in Gold, no invented keys |
 # MAGIC | T3 | Audit Columns — gold_load_dt, silver_load_dt, __START_AT/__END_AT |
-# MAGIC | T7 | Fact ↔ Silver Reconciliation — JOIN fact + dims rebuilds Silver |
-# MAGIC | T8 | Referential Integrity — no orphan FK keys in fact table |
+# MAGIC | T4 | Fact ↔ Silver Reconciliation — JOIN fact + dims rebuilds Silver |
+# MAGIC | T5 | Referential Integrity — no orphan FK keys in fact table |
 
 # COMMAND ----------
 
@@ -190,13 +190,13 @@ def test_t3_scd2_metadata_columns(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T7 — Fact ↔ Silver Reconciliation (Reverse Join)
+# MAGIC ## T4 — Fact ↔ Silver Reconciliation (Reverse Join)
 
 # COMMAND ----------
 
-# ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
+# ── T4 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
 
-def test_t7_reconstruct_silver_listings(spark):
+def test_t4_reconstruct_silver_listings(spark):
     fact      = spark.read.table(f"{GOLD}.fact_listings")
     dim_price = spark.read.table(f"{GOLD}.dim_price_category").select("price_category_key", "price_category")
     dim_steer = spark.read.table(f"{GOLD}.dim_steering").select("steering_key", "steering_wheel")
@@ -248,7 +248,7 @@ def test_t7_reconstruct_silver_listings(spark):
         f"{extra_in_gold:,} Gold rows have no corresponding Silver row."
     )
 
-def test_t7_reconstruct_silver_text(spark):
+def test_t4_reconstruct_silver_text(spark):
     fact             = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
     dim_txt          = (spark.read.table(f"{GOLD}.dim_listing_details")
                         .filter(F.col("__END_AT").isNull())
@@ -265,13 +265,13 @@ def test_t7_reconstruct_silver_text(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T8 — Referential Integrity (No Orphan FK Keys)
+# MAGIC ## T5 — Referential Integrity (No Orphan FK Keys)
 
 # COMMAND ----------
 
-# ── T8 — Referential Integrity ────────────────────────────────────────────────
+# ── T5 — Referential Integrity ────────────────────────────────────────────────
 
-def test_t8_no_orphan_dates(spark):
+def test_t5_no_orphan_dates(spark):
     fact_dates = (spark.read.table(f"{GOLD}.fact_listings")
                   .select("listing_date").distinct()
                   .filter(F.col("listing_date").isNotNull()))
@@ -283,7 +283,7 @@ def test_t8_no_orphan_dates(spark):
     ).count()
     assert orphans == 0, f"{orphans:,} fact listing_date values not found in dim_date."
 
-def test_t8_no_orphan_price_category_keys(spark):
+def test_t5_no_orphan_price_category_keys(spark):
     fact_keys = (spark.read.table(f"{GOLD}.fact_listings")
                  .select("price_category_key").distinct()
                  .filter(F.col("price_category_key").isNotNull()))
@@ -291,7 +291,7 @@ def test_t8_no_orphan_price_category_keys(spark):
     orphans   = fact_keys.subtract(dim_keys).count()
     assert orphans == 0, f"{orphans:,} fact price_category_key values not in dim_price_category."
 
-def test_t8_no_orphan_steering_keys(spark):
+def test_t5_no_orphan_steering_keys(spark):
     fact_keys = (spark.read.table(f"{GOLD}.fact_listings")
                  .select("steering_key").distinct()
                  .filter(F.col("steering_key").isNotNull()))
