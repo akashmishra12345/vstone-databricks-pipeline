@@ -8,3 +8,5 @@ resources:
       schema: ${var.gold_schema}
       catalog: ${var.catalog}
       serverless: true
+      configuration:
+        spark.databricks.delta.stream.allowDeletions: "true"

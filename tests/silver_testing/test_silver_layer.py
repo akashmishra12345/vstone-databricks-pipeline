@@ -98,7 +98,6 @@ def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','')
 # MAGIC %md
 # MAGIC ## Registry
 # MAGIC Single source of truth for all test suites.
-# MAGIC Add a new entry here and all three suites pick it up automatically.
 
 # COMMAND ----------
 
