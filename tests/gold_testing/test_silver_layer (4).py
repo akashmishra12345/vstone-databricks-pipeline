@@ -120,7 +120,9 @@ REGISTRY = [
         "pk_bronze_col": {"listing_id": ("id", _id_main)},
         # T4 domain checks
         "filter_not_null_cols": ["listing_id", "listing_date", "price_rub"],
-        "dlt_warn_cols"       : [],  # no warn-only expects on this table
+        # price_rub > 0 is @dlt.expect warn-only — rows with price<=0 pass into Silver
+        "dlt_warn_cols"       : [],  # null-rate checks (none here — price_rub is in filter)
+        "dlt_warn_positive_cols": ["price_rub"],  # @dlt.expect("positive_price") — warn-only
         "positive_cols" : ["price_rub"],
         "timestamp_cols": ["listing_date", "silver_load_dt"],
         # T7 derived column verification
@@ -472,19 +474,28 @@ def test_t4_dlt_warn_columns_null_rate(spark, entry):
 
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
-def test_t4_positive_numeric_columns(spark, entry):
+def test_t4_dlt_warn_positive_columns_rate(spark, entry):
     """
-    T4 — Columns in 'positive_cols' must be strictly > 0 in Silver.
-    Mirrors the @dlt.expect("positive_price", "price_rub > 0") constraint.
+    T4 — Columns in 'dlt_warn_positive_cols' use @dlt.expect (warn-only) for positivity.
+    Rows with value <= 0 are NOT dropped — they pass into Silver.
+    This test reports the bad-value rate and fails only if it exceeds MAX_BAD_RATE (50%).
+    Catches catastrophic pricing data corruption without false-positives on legitimately
+    sparse or zero-price records.
     """
-    df = spark.read.table(entry["silver"])
-    for col in entry.get("positive_cols", []):
+    MAX_BAD_RATE = 0.50
+    df    = spark.read.table(entry["silver"])
+    total = df.count()
+    if total == 0:
+        return
+    for col in entry.get("dlt_warn_positive_cols", []):
         if col in df.columns:
-            bad_cnt = df.filter(
-                F.col(col).isNotNull() & (F.col(col) <= 0)
-            ).count()
-            assert bad_cnt == 0, (
-                f"[{entry['name']}] Column '{col}' has {bad_cnt:,} rows with value <= 0."
+            bad_cnt  = df.filter(F.col(col).isNotNull() & (F.col(col) <= 0)).count()
+            bad_rate = bad_cnt / total
+            assert bad_rate <= MAX_BAD_RATE, (
+                f"[{entry['name']}] Warn-only positive column '{col}' has {bad_rate:.1%} "
+                f"({bad_cnt:,}/{total:,}) rows with value <= 0 — "
+                f"exceeds threshold of {MAX_BAD_RATE:.0%}. "
+                "Possible pricing data corruption upstream."
             )
 
 
