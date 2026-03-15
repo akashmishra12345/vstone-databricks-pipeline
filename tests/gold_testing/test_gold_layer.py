@@ -8,7 +8,7 @@
 # MAGIC | T2 | Row Integrity — every Silver key present in Gold, no invented keys |
 # MAGIC | T3 | Audit Columns — gold_load_dt, silver_load_dt, __START_AT/__END_AT |
 # MAGIC | T4 | Fact ↔ Silver Reconciliation — JOIN fact + dims rebuilds Silver |
-# MAGIC | T8 | Referential Integrity — no orphan FK keys in fact table |
+# MAGIC | T5 | Referential Integrity — no orphan FK keys in fact table |
 
 # COMMAND ----------
 
@@ -190,13 +190,13 @@ def test_t3_scd2_metadata_columns(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T7 — Fact ↔ Silver Reconciliation (Reverse Join)
+# MAGIC ## T4 — Fact ↔ Silver Reconciliation (Reverse Join)
 
 # COMMAND ----------
 
 # ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
 
-def test_t7_reconstruct_silver_listings(spark):
+def test_t4_reconstruct_silver_listings(spark):
     fact      = spark.read.table(f"{GOLD}.fact_listings")
     dim_price = spark.read.table(f"{GOLD}.dim_price_category").select("price_category_key", "price_category")
     dim_steer = spark.read.table(f"{GOLD}.dim_steering").select("steering_key", "steering_wheel")
@@ -248,7 +248,7 @@ def test_t7_reconstruct_silver_listings(spark):
         f"{extra_in_gold:,} Gold rows have no corresponding Silver row."
     )
 
-def test_t7_reconstruct_silver_text(spark):
+def test_t4_reconstruct_silver_text(spark):
     fact             = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
     dim_txt          = (spark.read.table(f"{GOLD}.dim_listing_details")
                         .filter(F.col("__END_AT").isNull())
@@ -265,13 +265,13 @@ def test_t7_reconstruct_silver_text(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T8 — Referential Integrity (No Orphan FK Keys)
+# MAGIC ## T5 — Referential Integrity (No Orphan FK Keys)
 
 # COMMAND ----------
 
-# ── T8 — Referential Integrity ────────────────────────────────────────────────
+# ── T5 — Referential Integrity ────────────────────────────────────────────────
 
-def test_t8_no_orphan_dates(spark):
+def test_t5_no_orphan_dates(spark):
     fact_dates = (spark.read.table(f"{GOLD}.fact_listings")
                   .select("listing_date").distinct()
                   .filter(F.col("listing_date").isNotNull()))
@@ -283,7 +283,7 @@ def test_t8_no_orphan_dates(spark):
     ).count()
     assert orphans == 0, f"{orphans:,} fact listing_date values not found in dim_date."
 
-def test_t8_no_orphan_price_category_keys(spark):
+def test_t5_no_orphan_price_category_keys(spark):
     fact_keys = (spark.read.table(f"{GOLD}.fact_listings")
                  .select("price_category_key").distinct()
                  .filter(F.col("price_category_key").isNotNull()))
@@ -291,10 +291,69 @@ def test_t8_no_orphan_price_category_keys(spark):
     orphans   = fact_keys.subtract(dim_keys).count()
     assert orphans == 0, f"{orphans:,} fact price_category_key values not in dim_price_category."
 
-def test_t8_no_orphan_steering_keys(spark):
+def test_t5_no_orphan_steering_keys(spark):
     fact_keys = (spark.read.table(f"{GOLD}.fact_listings")
                  .select("steering_key").distinct()
                  .filter(F.col("steering_key").isNotNull()))
     dim_keys  = spark.read.table(f"{GOLD}.dim_steering").select("steering_key")
     orphans   = fact_keys.subtract(dim_keys).count()
     assert orphans == 0, f"{orphans:,} fact steering_key values not in dim_steering."
+
+def test_t5_no_orphan_car_keys(spark):
+    """
+    Checks if every (brand, model) pair in fact_listings exists in dim_car.
+    Note: Composite join is required as per the notebook PK definition.
+    """
+    fact_cars = (spark.read.table(f"{GOLD}.fact_listings")
+                 .select("brand", "model").distinct()
+                 .filter(F.col("brand").isNotNull() & F.col("model").isNotNull()))
+    
+    # Hum sirf active records (__END_AT is NULL) se check karte hain
+    dim_cars = (spark.read.table(f"{GOLD}.dim_car")
+                .filter(F.col("__END_AT").isNull())
+                .select("brand", "model"))
+    
+    orphans = fact_cars.join(dim_cars, on=["brand", "model"], how="left_anti").count()
+    assert orphans == 0, f"{orphans:,} brand+model pairs in fact not found in dim_car active records."
+
+def test_t5_no_orphan_location_keys(spark):
+    """
+    Checks if every location_key (city_prepositional) in fact exists in dim_location.
+    """
+    fact_locs = (spark.read.table(f"{GOLD}.fact_listings")
+                 .select("location_key").distinct()
+                 .filter(F.col("location_key").isNotNull()))
+    
+    dim_locs = (spark.read.table(f"{GOLD}.dim_location")
+                .filter(F.col("__END_AT").isNull())
+                .select(F.col("city_prepositional").alias("location_key")))
+    
+    orphans = fact_locs.join(dim_locs, on="location_key", how="left_anti").count()
+    assert orphans == 0, f"{orphans:,} location_key values in fact not found in dim_location."
+
+def test_t5_no_orphan_listing_details(spark):
+    """
+    Checks 1:1 referential integrity between fact_listings and dim_listing_details.
+    """
+    fact_ids = spark.read.table(f"{GOLD}.fact_listings").select("listing_id").distinct()
+    
+    dim_ids = (spark.read.table(f"{GOLD}.dim_listing_details")
+               .filter(F.col("__END_AT").isNull())
+               .select("listing_id"))
+    
+    orphans = fact_ids.join(dim_ids, on="listing_id", how="left_anti").count()
+    assert orphans == 0, f"{orphans:,} listing_id values in fact have no matching entry in dim_listing_details."
+
+def test_t5_no_orphan_listing_photos(spark):
+    """
+    Checks if every listing in fact has at least a reference in dim_listing_photos.
+    Note: This confirms the 1:Many link is intact for all listings.
+    """
+    fact_ids = spark.read.table(f"{GOLD}.fact_listings").select("listing_id").distinct()
+    
+    dim_photo_ids = (spark.read.table(f"{GOLD}.dim_listing_photos")
+                     .filter(F.col("__END_AT").isNull())
+                     .select("listing_id").distinct())
+    
+    orphans = fact_ids.join(dim_photo_ids, on="listing_id", how="left_anti").count()
+    assert orphans == 0, f"{orphans:,} listing_id values in fact have no associated photos in dim_listing_photos."

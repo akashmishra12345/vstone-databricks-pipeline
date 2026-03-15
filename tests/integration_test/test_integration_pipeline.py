@@ -11,7 +11,7 @@
 # MAGIC | T-3 | Full audit chain unbroken: `bronze_load_dt` <= `silver_load_dt` <= `gold_load_dt` non-null on every fact row | Bronze -> Silver -> Gold |
 # MAGIC | T-4 | Every Silver dimension key is an active SCD2 row in Gold | Silver -> Gold |
 # MAGIC | T-5 | `fact_listings` derived measures are internally self-consistent | Gold self-check |
-# MAGIC | T-6 | Star-schema FK join rates meet the 60% minimum on all dimension joins | Gold self-check |
+# MAGIC | T-6 | Star-schema FK join rates meet the 80% minimum on all dimension joins | Gold self-check |
 # MAGIC | T-7 | Aggregate tables are consistent with `fact_listings` | Gold self-check |
 
 # COMMAND ----------
@@ -453,7 +453,7 @@ def test_it5_price_per_hp_null_only_when_engine_or_price_missing(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## T-6 -- Star Schema FK Join Rates >= 60%
+# MAGIC ## T-6 -- Star Schema FK Join Rates >= 80%
 # MAGIC
 # MAGIC **Contract:** Joining `fact_listings` to each dimension must match at least 60%
 # MAGIC of fact rows. A low join rate means FK values in the fact table do not align with
