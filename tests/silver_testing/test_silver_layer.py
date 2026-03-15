@@ -4,12 +4,12 @@
 # MAGIC
 # MAGIC | Suite | What it checks |
 # MAGIC |-------|----------------|
-# MAGIC | T1    | Reconciliation — Bronze row count balances Silver + Quarantine |
+# MAGIC | T1    | Reconciliation
 # MAGIC | T2    | Subset integrity — every Silver PK exists in Bronze (Silver ⊆ Bronze) |
 # MAGIC | T3    | Audit columns — present, non-null, correct types |
 # MAGIC | T4    | Schema & domain constraints — hard-filter nulls, warn-only quality metrics, types, geo bounds |
 # MAGIC | T5    | Deduplication — no duplicate PKs survive into Silver |
-# MAGIC | T6    | Quarantine hygiene — reason populated, dt present, disjoint from Silver |
+# MAGIC | T6    | Quarantine hygiene — reason populated, dt present
 # MAGIC | T7    | Derived columns — price_usd, car_age_years, price_category, brand_std correctness |
 
 # COMMAND ----------
@@ -92,13 +92,6 @@ def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','')
 # MAGIC %md
 # MAGIC ## Registry
 # MAGIC Single source of truth for all 5 Silver tables.
-# MAGIC
-# MAGIC **Key design — two null-check keys replace the old `not_null_cols`:**
-# MAGIC - `filter_not_null_cols` — guarded by a real `.filter()` in the pipeline → **zero nulls enforced**
-# MAGIC - `dlt_warn_cols` — covered only by `@dlt.expect` (warn mode) → **nulls pass into Silver, tested by rate threshold**
-# MAGIC - `dlt_warn_positive_cols` — `@dlt.expect` positivity check (warn mode) → **tested by rate threshold**
-# MAGIC
-# MAGIC **`pk_bronze_col`** maps each Silver PK back to its Bronze raw column for the T2 subset test.
 
 # COMMAND ----------
 
@@ -257,16 +250,12 @@ def _union_bronze(spark, sources: list):
 
 # MAGIC %md
 # MAGIC ## T1 — Reconciliation
-# MAGIC Bronze row count must balance Silver + Quarantine (accounting for deduplication).
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_t1_reconciliation(spark, entry):
-    """
-    T1 — Bronze row count must equal Silver + Quarantine row count.
-    For tables with dedup keys, unique Bronze key count is used instead of raw count.
-    """
+   
     bronze_total = sum(spark.read.table(s).count() for s in entry["bronze_sources"])
     silver_cnt   = spark.read.table(entry["silver"]).count()
     quar_cnt     = spark.read.table(entry["quarantine"]).count()
@@ -319,12 +308,6 @@ def test_t1_quarantine_has_rejection_reasons(spark, entry):
 
 # MAGIC %md
 # MAGIC ## T2 — Silver PK ⊆ Bronze PK (Subset Integrity)
-# MAGIC
-# MAGIC Replaces the old row-to-row SHA-256 hash test.
-# MAGIC
-# MAGIC Silver transforms, enriches, and derives new columns from Bronze — row hashes will naturally
-# MAGIC differ after transformation. What must hold is that every Silver primary key originates from
-# MAGIC a real Bronze record. Uses `left_anti` join: Silver PKs with no Bronze match are violations.
 
 # COMMAND ----------
 
@@ -413,16 +396,6 @@ def test_t3_primary_key_non_null(spark, entry):
 
 # MAGIC %md
 # MAGIC ## T4 — Schema & Domain Constraints
-# MAGIC
-# MAGIC **`filter_not_null_cols`** — protected by an actual `.filter()` call in the pipeline.
-# MAGIC Rows are physically dropped when null → Silver must have **zero nulls**. A null here means the pipeline filter is broken.
-# MAGIC
-# MAGIC **`dlt_warn_cols`** — covered only by `@dlt.expect` (warn mode).
-# MAGIC Null rows are **not dropped** — they legitimately pass into Silver.
-# MAGIC Tested as a quality metric: fails only if null rate exceeds 50% (signals catastrophic upstream data loss).
-# MAGIC
-# MAGIC **`dlt_warn_positive_cols`** — `@dlt.expect` positivity check (warn mode).
-# MAGIC Rows with value ≤ 0 pass into Silver. Tested by rate threshold.
 
 # COMMAND ----------
 
@@ -532,7 +505,6 @@ def test_t4_listing_date_range_is_reasonable(spark):
 
 # MAGIC %md
 # MAGIC ## T5 — Deduplication
-# MAGIC Verifies that `dropDuplicates` in the pipeline removed all duplicate PKs from Silver.
 
 # COMMAND ----------
 
