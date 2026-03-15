@@ -84,7 +84,7 @@ jobs:
 
   # [run-bronze-tests, run-silver-tests, run-gold-tests]
 
-  5. Integration Tests
+  # 5. Integration Tests
   run-integration-test:
     name: Run Integration Test
     runs-on: ubuntu-latest
