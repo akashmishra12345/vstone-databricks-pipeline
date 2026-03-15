@@ -49,7 +49,7 @@ SILVER = f"{CONFIG['catalog']}.{CONFIG['silver']}"
 GOLD   = f"{CONFIG['catalog']}.{CONFIG['gold']}"
 
 # Minimum acceptable FK join rate between fact and any dimension
-MIN_JOIN_RATE_PCT = 60.0
+MIN_JOIN_RATE_PCT = 90.0
 
 # COMMAND ----------
 
