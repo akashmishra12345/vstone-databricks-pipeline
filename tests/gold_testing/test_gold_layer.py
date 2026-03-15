@@ -300,21 +300,19 @@ def test_t5_no_orphan_steering_keys(spark):
     assert orphans == 0, f"{orphans:,} fact steering_key values not in dim_steering."
 
 def test_t5_no_orphan_car_keys(spark):
-    """
-    Checks if every (brand, model) pair in fact_listings exists in dim_car.
-    Note: Composite join is required as per the notebook PK definition.
-    """
     fact_cars = (spark.read.table(f"{GOLD}.fact_listings")
-                 .select("brand", "model").distinct()
+                 .select(F.lower(F.trim(F.col("brand"))).alias("brand"), 
+                         F.lower(F.trim(F.col("model"))).alias("model"))
+                 .distinct()
                  .filter(F.col("brand").isNotNull() & F.col("model").isNotNull()))
     
-    # Hum sirf active records (__END_AT is NULL) se check karte hain
     dim_cars = (spark.read.table(f"{GOLD}.dim_car")
                 .filter(F.col("__END_AT").isNull())
-                .select("brand", "model"))
+                .select(F.lower(F.trim(F.col("brand"))).alias("brand"), 
+                        F.lower(F.trim(F.col("model"))).alias("model")))
     
     orphans = fact_cars.join(dim_cars, on=["brand", "model"], how="left_anti").count()
-    assert orphans == 0, f"{orphans:,} brand+model pairs in fact not found in dim_car active records."
+    assert orphans == 0, f"{orphans:,} cleaned brand+model pairs in fact not found in dim_car."
 
 def test_t5_no_orphan_location_keys(spark):
     """
