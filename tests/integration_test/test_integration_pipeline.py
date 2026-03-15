@@ -6,13 +6,13 @@
 # MAGIC
 # MAGIC | Test | Contract | Layers |
 # MAGIC |------|----------|--------|
-# MAGIC | IT-1 | Every Bronze row reaches Silver or Quarantine -- no silent drops | Bronze -> Silver |
-# MAGIC | IT-2 | Silver `listing_id` PKs flow into `fact_listings` with zero loss and zero invention | Silver -> Gold |
-# MAGIC | IT-3 | Full audit chain unbroken: `bronze_load_dt` <= `silver_load_dt` <= `gold_load_dt` non-null on every fact row | Bronze -> Silver -> Gold |
-# MAGIC | IT-4 | Every Silver dimension key is an active SCD2 row in Gold | Silver -> Gold |
-# MAGIC | IT-5 | `fact_listings` derived measures are internally self-consistent | Gold self-check |
-# MAGIC | IT-6 | Star-schema FK join rates meet the 60% minimum on all dimension joins | Gold self-check |
-# MAGIC | IT-7 | Aggregate tables are consistent with `fact_listings` | Gold self-check |
+# MAGIC | T-1 | Every Bronze row reaches Silver -- no silent drops | Bronze -> Silver |
+# MAGIC | T-2 | Silver `listing_id` PKs flow into `fact_listings` with zero loss and zero invention | Silver -> Gold |
+# MAGIC | T-3 | Full audit chain unbroken: `bronze_load_dt` <= `silver_load_dt` <= `gold_load_dt` non-null on every fact row | Bronze -> Silver -> Gold |
+# MAGIC | T-4 | Every Silver dimension key is an active SCD2 row in Gold | Silver -> Gold |
+# MAGIC | T-5 | `fact_listings` derived measures are internally self-consistent | Gold self-check |
+# MAGIC | T-6 | Star-schema FK join rates meet the 60% minimum on all dimension joins | Gold self-check |
+# MAGIC | T-7 | Aggregate tables are consistent with `fact_listings` | Gold self-check |
 
 # COMMAND ----------
 
@@ -73,13 +73,9 @@ def _id_dbl(col):  return F.col(f"`{col}`").cast("double").cast("long").cast("st
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-1 -- Bronze -> Silver: No Silent Row Drops
+# MAGIC ## T-1 -- Bronze -> Silver: No Silent Row Drops
 # MAGIC
-# MAGIC **Contract:** Every distinct Bronze key must appear in either Silver or Quarantine.
-# MAGIC
-# MAGIC This is the most fundamental cross-layer contract. A row that disappears without
-# MAGIC appearing in quarantine means the pipeline swallowed it -- a data loss event that
-# MAGIC unit tests on individual layers cannot catch because each layer looks only at itself.
+# MAGIC **Contract:** Every distinct Bronze key must appear in Silver or quarantine
 
 # COMMAND ----------
 
@@ -173,13 +169,10 @@ def test_it1_no_silent_drops_bronze_to_silver(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-2 -- Silver -> Gold: `listing_id` Lineage Through `fact_listings`
+# MAGIC ## T-2 -- Silver -> Gold: `listing_id` Lineage Through `fact_listings`
 # MAGIC
 # MAGIC **Contract:** Every `listing_id` in `listings_silver_merged` must appear in
 # MAGIC `fact_listings`, with no drops and no invented IDs.
-# MAGIC
-# MAGIC This is the critical Silver->Gold handoff test. The fact table is the primary consumer
-# MAGIC of Silver data -- any loss or invention here breaks all downstream analytics.
 
 # COMMAND ----------
 
@@ -232,14 +225,11 @@ def test_it2_fact_row_count_within_tolerance_of_silver(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-3 -- Unbroken Audit Chain: Bronze -> Silver -> Gold
+# MAGIC ## T-3 -- Unbroken Audit Chain: Bronze -> Silver -> Gold
 # MAGIC
 # MAGIC **Contract:** `fact_listings` must carry all four audit columns fully populated
 # MAGIC and in the correct chronological order:
 # MAGIC `bronze_load_dt` <= `silver_load_dt` <= `gold_load_dt`.
-# MAGIC
-# MAGIC This is the only test that validates the audit chain across all three layers
-# MAGIC simultaneously. Individual layer unit tests check only within their own layer.
 
 # COMMAND ----------
 
@@ -294,14 +284,10 @@ def test_it3_audit_timestamps_are_chronologically_ordered(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-4 -- Silver -> SCD2 Gold Dimensions: No Key Loss or Invention
+# MAGIC ## T-4 -- Silver -> SCD2 Gold Dimensions: No Key Loss or Invention
 # MAGIC
 # MAGIC **Contract:** Every distinct Silver dimension key must have exactly one active
 # MAGIC (`__END_AT IS NULL`) row in its corresponding Gold SCD2 table.
-# MAGIC
-# MAGIC This tests the `dlt.apply_changes()` handoff from Silver to each SCD2 dim.
-# MAGIC Key loss means a dimension row is missing from Gold; key invention means
-# MAGIC `apply_changes` created a Gold row with no Silver provenance.
 
 # COMMAND ----------
 
@@ -320,6 +306,11 @@ _SCD2_REGISTRY = [
         "name"   : "dim_listing_details",
         "silver" : f"{SILVER}.listings_text_transformation",
         "keys"   : ["listing_id"],
+    },
+    {
+        "name"   : "dim_listing_photos",
+        "silver" : f"{SILVER}.llistings_photo_transformation",
+        "keys"   : ["listing_id", "photo_url_clean"],
     },
 ]
 
@@ -373,15 +364,11 @@ def test_it4_scd2_no_invented_gold_keys(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-5 -- `fact_listings` Derived Measures Self-Consistency
+# MAGIC ## T-5 -- `fact_listings` Derived Measures Self-Consistency
 # MAGIC
 # MAGIC **Contract:** Gold-level derived columns (`car_age_at_listing`, `is_high_mileage`,
 # MAGIC `price_per_hp_usd`, `photo_count`) must be internally consistent with the source
 # MAGIC columns in the same row.
-# MAGIC
-# MAGIC These are computed in the Gold pipeline from Silver values joined in Gold.
-# MAGIC Any corruption from join fanout or wrong column references is invisible to
-# MAGIC Silver-layer unit tests.
 
 # COMMAND ----------
 
@@ -466,16 +453,11 @@ def test_it5_price_per_hp_null_only_when_engine_or_price_missing(spark):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-6 -- Star Schema FK Join Rates >= 60%
+# MAGIC ## T-6 -- Star Schema FK Join Rates >= 60%
 # MAGIC
 # MAGIC **Contract:** Joining `fact_listings` to each dimension must match at least 60%
 # MAGIC of fact rows. A low join rate means FK values in the fact table do not align with
 # MAGIC dimension keys -- making the star schema analytically broken.
-# MAGIC
-# MAGIC Why cross-layer: FK values originate in Bronze, flow through Silver transformations,
-# MAGIC and are matched against Gold dimensions built from different Silver tables.
-# MAGIC Only a cross-layer integration test can expose FK alignment failures between these
-# MAGIC two parallel Silver->Gold paths.
 
 # COMMAND ----------
 
@@ -547,15 +529,11 @@ def test_it6_fact_dim_join_rate_meets_minimum(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## IT-7 -- Aggregate Tables Consistent with `fact_listings`
+# MAGIC ## T-7 -- Aggregate Tables Consistent with `fact_listings`
 # MAGIC
 # MAGIC **Contract:** All 5 aggregate tables must be non-empty, their listing volume
 # MAGIC totals must reconcile with `fact_listings`, and `agg_top_10_brands_by_spend`
 # MAGIC must contain <= 10 rows.
-# MAGIC
-# MAGIC Aggregates are built from `fact_listings` via `dlt.read()`. If the fact table
-# MAGIC changes but aggregates are stale, or if a GROUP BY produces a row explosion,
-# MAGIC only a cross-table integration check catches it.
 
 # COMMAND ----------
 
