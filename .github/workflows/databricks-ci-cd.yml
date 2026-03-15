@@ -82,11 +82,13 @@ jobs:
   #     - name: Run Gold tests
   #       run: pytest tests/gold_testing -v --maxfail=1 --disable-warnings
 
+  # [run-bronze-tests, run-silver-tests, run-gold-tests]
+
   5. Integration Tests
   run-integration-test:
     name: Run Integration Test
     runs-on: ubuntu-latest
-    needs: [run-bronze-tests, run-silver-tests, run-gold-tests]
+    needs: validate-bundle
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
