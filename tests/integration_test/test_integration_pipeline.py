@@ -309,7 +309,7 @@ _SCD2_REGISTRY = [
     },
     {
         "name"   : "dim_listing_photos",
-        "silver" : f"{SILVER}.llistings_photo_transformation",
+        "silver" : f"{SILVER}.listings_photo_transformation",
         "keys"   : ["listing_id", "photo_url_clean"],
     },
 ]
