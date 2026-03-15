@@ -503,6 +503,16 @@ _JOIN_CHECKS = [
         ),
         "desc" : "fact.listing_id -> dim_listing_details active rows",
     },
+    {
+        "dim"  : "dim_listing_photos",
+        "sql"  : (
+            f"SELECT COUNT(DISTINCT f.listing_id) AS c "
+            f"FROM {GOLD}.fact_listings f "
+            f"JOIN {GOLD}.dim_listing_photos d ON f.listing_id = d.listing_id "
+            "WHERE d.__END_AT IS NULL"
+        ),
+        "desc" : "fact.listing_id -> dim_listing_photos active rows (distinct match)",
+    },
 ]
 
 _JOIN_PARAMS = [pytest.param(e, id=e["dim"]) for e in _JOIN_CHECKS]
