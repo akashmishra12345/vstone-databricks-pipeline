@@ -194,7 +194,7 @@ def test_t3_scd2_metadata_columns(spark, entry):
 
 # COMMAND ----------
 
-# ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
+# ── T4 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
 
 def test_t4_reconstruct_silver_listings(spark):
     """
@@ -309,76 +309,6 @@ def test_t4_reconstruct_silver_car_specs(spark):
     # Silver data must be reconstructable using the brand+model natural key
     missing = silver_car.join(fact, on=["brand", "model"], how="inner").subtract(reconstructed).count()
     assert missing == 0, f"{missing:,} Car specifications lost during Gold transformation."
-
-# COMMAND ----------
-
-# # ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
-
-# def test_t4_reconstruct_silver_listings(spark):
-#     fact      = spark.read.table(f"{GOLD}.fact_listings")
-#     dim_price = spark.read.table(f"{GOLD}.dim_price_category").select("price_category_key", "price_category")
-#     dim_steer = spark.read.table(f"{GOLD}.dim_steering").select("steering_key", "steering_wheel")
-
-#     reconstructed = (
-#         fact
-#         .join(dim_price, on="price_category_key", how="left")
-#         .join(dim_steer, on="steering_key",        how="left")
-#         .select(
-#             "listing_id",
-#             "listing_date",
-#             "brand",
-#             "model",
-#             "price_rub",
-#             "price_usd",
-#             "price_category",
-#             "mileage_km",
-#             "manufacture_year",
-#             "engine_power",
-#             "steering_wheel",
-#             F.col("location_key").alias("city_prepositional"),
-#         )
-#     )
-
-#     silver = (
-#         spark.read.table(f"{SILVER}.listings_silver_merged")
-#         .select(
-#             "listing_id",
-#             F.col("listing_date").cast("date").alias("listing_date"),
-#             "brand",
-#             "model",
-#             "price_rub",
-#             "price_usd",
-#             "price_category",
-#             "mileage_km",
-#             "manufacture_year",
-#             "engine_power",
-#             "steering_wheel",
-#             "city_prepositional",
-#         )
-#     )
-
-#     missing_from_gold = silver.subtract(reconstructed).count()
-#     assert missing_from_gold == 0, (
-#         f"{missing_from_gold:,} Silver rows not recoverable from Gold star schema join."
-#     )
-#     extra_in_gold = reconstructed.subtract(silver).count()
-#     assert extra_in_gold == 0, (
-#         f"{extra_in_gold:,} Gold rows have no corresponding Silver row."
-#     )
-
-# def test_t4_reconstruct_silver_text(spark):
-#     fact             = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
-#     dim_txt          = (spark.read.table(f"{GOLD}.dim_listing_details")
-#                         .filter(F.col("__END_AT").isNull())
-#                         .select("listing_id", "text"))
-#     reconstructed    = fact.join(dim_txt, on="listing_id", how="inner")
-#     silver_text      = (spark.read.table(f"{SILVER}.listings_text_transformation")
-#                         .select("listing_id", "text"))
-#     silver_with_text = silver_text.join(fact, on="listing_id", how="inner")
-#     missing = silver_with_text.subtract(reconstructed).count()
-#     assert missing == 0, (
-#         f"{missing:,} Silver text rows not recoverable from dim_listing_details."
-#     )
 
 # COMMAND ----------
 

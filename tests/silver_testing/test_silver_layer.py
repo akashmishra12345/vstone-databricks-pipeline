@@ -98,7 +98,7 @@ def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','')
 REGISTRY = [
     # ── listings_silver_merged ────────────────────────────────────────────────
     # Hard filters (_LISTINGS_VALID_FILTER): listing_id, price_rub, listing_date
-    # @dlt.expect warn-only: price_rub > 0
+    
     {
         "name"               : "listings_silver_merged",
         "silver"             : S("listings_silver_merged"),
@@ -120,8 +120,7 @@ REGISTRY = [
     },
 
     # ── car_catalog_transformation ────────────────────────────────────────────
-    # Hard filter: brand only
-    # @dlt.expect warn-only: model
+   
     {
         "name"               : "car_catalog_transformation",
         "silver"             : S("car_catalog_transformation"),
@@ -151,8 +150,7 @@ REGISTRY = [
     },
 
     # ── listings_text_transformation ──────────────────────────────────────────
-    # Hard filter: listing_id only
-    # @dlt.expect warn-only: text
+    
     {
         "name"               : "listings_text_transformation",
         "silver"             : S("listings_text_transformation"),
@@ -171,8 +169,7 @@ REGISTRY = [
     },
 
     # ── listings_photo_transformation ─────────────────────────────────────────
-    # Hard filter: listing_id only
-    # @dlt.expect warn-only: photo_url
+    
     {
         "name"               : "listings_photo_transformation",
         "silver"             : S("listings_photo_transformation"),
@@ -194,8 +191,7 @@ REGISTRY = [
     },
 
     # ── geography_transformation ──────────────────────────────────────────────
-    # Hard filter: latitude, longitude  (via _is_valid_russia)
-    # @dlt.expect warn-only: city_name
+   
     {
         "name"               : "geography_transformation",
         "silver"             : S("geography_transformation"),
@@ -592,19 +588,6 @@ def test_t6_silver_and_quarantine_pks_are_disjoint(spark, entry):
 
 # MAGIC %md
 # MAGIC ## T7 — Derived Column Correctness (`listings_silver_merged`)
-# MAGIC
-# MAGIC Validates enrichment columns against source columns **in the same Silver row**.
-# MAGIC
-# MAGIC **Why `price_category` is not tested with an exact-match recompute:**
-# MAGIC `listings_silver_merged` is a streaming DLT table fed by 4 Bronze sources via `unionByName`.
-# MAGIC Data accumulates across micro-batches; `price_category` was computed from `price_rub` at
-# MAGIC write time in each batch. Recomputing from the stored `price_rub` can disagree due to
-# MAGIC floating-point edge cases at integer boundaries (e.g. `price_rub = 700000.0` sits exactly
-# MAGIC on the `MID_RANGE / PREMIUM` boundary) and pipeline evolution across runs.
-# MAGIC Instead, three weaker but reliable checks are used:
-# MAGIC - **Valid label set** — no label outside the 5 defined values
-# MAGIC - **No degenerate distribution** — UNKNOWN must not dominate (< 50% threshold)
-# MAGIC - **Non-null** — every row with a non-null `price_rub` gets a label
 
 # COMMAND ----------
 
