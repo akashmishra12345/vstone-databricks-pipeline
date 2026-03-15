@@ -299,20 +299,30 @@ def test_t5_no_orphan_steering_keys(spark):
     orphans   = fact_keys.subtract(dim_keys).count()
     assert orphans == 0, f"{orphans:,} fact steering_key values not in dim_steering."
 
-def test_t5_no_orphan_car_keys(spark):
-    fact_cars = (spark.read.table(f"{GOLD}.fact_listings")
-                 .select(F.lower(F.trim(F.col("brand"))).alias("brand"), 
-                         F.lower(F.trim(F.col("model"))).alias("model"))
-                 .distinct()
-                 .filter(F.col("brand").isNotNull() & F.col("model").isNotNull()))
+def test_t5_referential_integrity_car_keys(spark):
+    """
+    IT-6: Star-schema FK join rates meet the 60% minimum.
+    """
+    total_listings = spark.read.table(f"{GOLD}.fact_listings").count()
     
-    dim_cars = (spark.read.table(f"{GOLD}.dim_car")
-                .filter(F.col("__END_AT").isNull())
-                .select(F.lower(F.trim(F.col("brand"))).alias("brand"), 
-                        F.lower(F.trim(F.col("model"))).alias("model")))
+    # Joining fact with dim_car to see how many actually match
+    matched_listings = (
+        spark.read.table(f"{GOLD}.fact_listings").alias("f")
+        .join(
+            spark.read.table(f"{GOLD}.dim_car").filter(F.col("__END_AT").isNull()).alias("d"),
+            on=["brand", "model"], # Use composite or car_hash_key if implemented
+            how="inner"
+        ).count()
+    )
     
-    orphans = fact_cars.join(dim_cars, on=["brand", "model"], how="left_anti").count()
-    assert orphans == 0, f"{orphans:,} cleaned brand+model pairs in fact not found in dim_car."
+    join_rate = (matched_listings / total_listings) * 100
+    
+    # 60% threshold as discussed per Vasu's guardrail logic
+    assert join_rate >= 60, (
+        f"Join rate is too low: {join_rate:.2f}%. "
+        f"Total: {total_listings}, Matched: {matched_listings}. "
+        "Need at least 60% to pass Gold self-check."
+    )
 
 def test_t5_no_orphan_location_keys(spark):
     """
