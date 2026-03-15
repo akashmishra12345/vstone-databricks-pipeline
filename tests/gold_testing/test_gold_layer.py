@@ -197,10 +197,15 @@ def test_t3_scd2_metadata_columns(spark, entry):
 # ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
 
 def test_t4_reconstruct_silver_listings(spark):
+    """
+    Verifies that joining fact_listings with lookup dims reconstructs the 
+    Silver 'listings_silver_merged' table perfectly.
+    """
     fact      = spark.read.table(f"{GOLD}.fact_listings")
     dim_price = spark.read.table(f"{GOLD}.dim_price_category").select("price_category_key", "price_category")
     dim_steer = spark.read.table(f"{GOLD}.dim_steering").select("steering_key", "steering_wheel")
 
+    # Reconstruction join
     reconstructed = (
         fact
         .join(dim_price, on="price_category_key", how="left")
@@ -225,7 +230,7 @@ def test_t4_reconstruct_silver_listings(spark):
         spark.read.table(f"{SILVER}.listings_silver_merged")
         .select(
             "listing_id",
-            F.col("listing_date").cast("date").alias("listing_date"),
+            F.col("listing_date").cast("date").alias("listing_date"), # Notebook casts to date
             "brand",
             "model",
             "price_rub",
@@ -239,28 +244,141 @@ def test_t4_reconstruct_silver_listings(spark):
         )
     )
 
+    # Integrity Check: Count differences
     missing_from_gold = silver.subtract(reconstructed).count()
-    assert missing_from_gold == 0, (
-        f"{missing_from_gold:,} Silver rows not recoverable from Gold star schema join."
-    )
+    assert missing_from_gold == 0, f"{missing_from_gold:,} Silver rows missing in Gold reconstruction."
+    
     extra_in_gold = reconstructed.subtract(silver).count()
-    assert extra_in_gold == 0, (
-        f"{extra_in_gold:,} Gold rows have no corresponding Silver row."
-    )
+    assert extra_in_gold == 0, f"{extra_in_gold:,} Gold rows have no Silver origin."
 
 def test_t4_reconstruct_silver_text(spark):
-    fact             = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
-    dim_txt          = (spark.read.table(f"{GOLD}.dim_listing_details")
-                        .filter(F.col("__END_AT").isNull())
+    """
+    Verifies 1:1 text data recovery from dim_listing_details.
+    """
+    fact            = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
+    dim_txt         = (spark.read.table(f"{GOLD}.dim_listing_details")
+                        .filter(F.col("__END_AT").isNull()) # Get current active version
                         .select("listing_id", "text"))
-    reconstructed    = fact.join(dim_txt, on="listing_id", how="inner")
-    silver_text      = (spark.read.table(f"{SILVER}.listings_text_transformation")
+    
+    reconstructed   = fact.join(dim_txt, on="listing_id", how="inner")
+    
+    silver_text     = (spark.read.table(f"{SILVER}.listings_text_transformation")
                         .select("listing_id", "text"))
-    silver_with_text = silver_text.join(fact, on="listing_id", how="inner")
-    missing = silver_with_text.subtract(reconstructed).count()
-    assert missing == 0, (
-        f"{missing:,} Silver text rows not recoverable from dim_listing_details."
-    )
+    
+    # Only compare IDs that exist in the Fact table
+    silver_filtered = silver_text.join(fact, on="listing_id", how="inner")
+    
+    missing = silver_filtered.subtract(reconstructed).count()
+    assert missing == 0, f"{missing:,} Text records failed reconciliation."
+
+def test_t4_reconstruct_silver_photos(spark):
+    """
+    Verifies that the photo counts in Fact match the counts in dim_listing_photos.
+    """
+    # Fact stores the denormalized count
+    fact_counts = (spark.read.table(f"{GOLD}.fact_listings")
+                   .select("listing_id", F.col("photo_count").alias("gold_count")))
+    
+    # Dim stores the raw rows; we aggregate to check
+    dim_counts = (spark.read.table(f"{GOLD}.dim_listing_photos")
+                  .filter(F.col("__END_AT").isNull())
+                  .groupBy("listing_id")
+                  .agg(F.count("photo_url_clean").alias("dim_count")))
+    
+    comparison = fact_counts.join(dim_counts, on="listing_id", how="left")
+    
+    # Check for count mismatches
+    mismatches = comparison.filter(F.col("gold_count") != F.coalesce(F.col("dim_count"), F.lit(0))).count()
+    assert mismatches == 0, f"{mismatches:,} listings have mismatched photo counts between Fact and Dim."
+
+def test_t4_reconstruct_silver_car_specs(spark):
+    """
+    Verifies that car specs (fuel_type, etc.) can be recovered by joining 
+    Fact back to dim_car.
+    """
+    fact    = spark.read.table(f"{GOLD}.fact_listings").select("brand", "model").distinct()
+    dim_car = (spark.read.table(f"{GOLD}.dim_car")
+               .filter(F.col("__END_AT").isNull())
+               .select("brand", "model", "fuel_type", "transmission", "drive_type"))
+    
+    reconstructed = fact.join(dim_car, on=["brand", "model"], how="inner")
+    
+    silver_car = (spark.read.table(f"{SILVER}.car_catalog_transformation")
+                  .select("brand", "model", "fuel_type", "transmission", "drive_type"))
+    
+    # Silver data must be reconstructable using the brand+model natural key
+    missing = silver_car.join(fact, on=["brand", "model"], how="inner").subtract(reconstructed).count()
+    assert missing == 0, f"{missing:,} Car specifications lost during Gold transformation."
+
+# COMMAND ----------
+
+# # ── T7 — Fact ↔ Silver Reconciliation ────────────────────────────────────────
+
+# def test_t4_reconstruct_silver_listings(spark):
+#     fact      = spark.read.table(f"{GOLD}.fact_listings")
+#     dim_price = spark.read.table(f"{GOLD}.dim_price_category").select("price_category_key", "price_category")
+#     dim_steer = spark.read.table(f"{GOLD}.dim_steering").select("steering_key", "steering_wheel")
+
+#     reconstructed = (
+#         fact
+#         .join(dim_price, on="price_category_key", how="left")
+#         .join(dim_steer, on="steering_key",        how="left")
+#         .select(
+#             "listing_id",
+#             "listing_date",
+#             "brand",
+#             "model",
+#             "price_rub",
+#             "price_usd",
+#             "price_category",
+#             "mileage_km",
+#             "manufacture_year",
+#             "engine_power",
+#             "steering_wheel",
+#             F.col("location_key").alias("city_prepositional"),
+#         )
+#     )
+
+#     silver = (
+#         spark.read.table(f"{SILVER}.listings_silver_merged")
+#         .select(
+#             "listing_id",
+#             F.col("listing_date").cast("date").alias("listing_date"),
+#             "brand",
+#             "model",
+#             "price_rub",
+#             "price_usd",
+#             "price_category",
+#             "mileage_km",
+#             "manufacture_year",
+#             "engine_power",
+#             "steering_wheel",
+#             "city_prepositional",
+#         )
+#     )
+
+#     missing_from_gold = silver.subtract(reconstructed).count()
+#     assert missing_from_gold == 0, (
+#         f"{missing_from_gold:,} Silver rows not recoverable from Gold star schema join."
+#     )
+#     extra_in_gold = reconstructed.subtract(silver).count()
+#     assert extra_in_gold == 0, (
+#         f"{extra_in_gold:,} Gold rows have no corresponding Silver row."
+#     )
+
+# def test_t4_reconstruct_silver_text(spark):
+#     fact             = spark.read.table(f"{GOLD}.fact_listings").select("listing_id")
+#     dim_txt          = (spark.read.table(f"{GOLD}.dim_listing_details")
+#                         .filter(F.col("__END_AT").isNull())
+#                         .select("listing_id", "text"))
+#     reconstructed    = fact.join(dim_txt, on="listing_id", how="inner")
+#     silver_text      = (spark.read.table(f"{SILVER}.listings_text_transformation")
+#                         .select("listing_id", "text"))
+#     silver_with_text = silver_text.join(fact, on="listing_id", how="inner")
+#     missing = silver_with_text.subtract(reconstructed).count()
+#     assert missing == 0, (
+#         f"{missing:,} Silver text rows not recoverable from dim_listing_details."
+#     )
 
 # COMMAND ----------
 
