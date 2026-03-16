@@ -977,8 +977,6 @@ def test_r1_exact_count_reconciliation(spark, entry):
 
     else:
         # ── Standard path: listings_silver_merged, text, photo, geography ─────
-        # Both Silver AND Quarantine are derived from the SAME deduplicated df.
-        # Therefore: Silver.count() + Quarantine.count() == deduplicated_bronze EXACTLY.
 
         # Step 1: read and union Bronze
         df_bronze = _union_bronze(spark, entry["bronze_sources"])
@@ -1011,12 +1009,6 @@ def test_r1_exact_count_reconciliation(spark, entry):
 
 # MAGIC %md
 # MAGIC ## R2 -- Reconciliation: Forward Subset Integrity (Silver PK in Bronze)
-# MAGIC
-# MAGIC **Direction: Bronze -> Silver**
-# MAGIC
-# MAGIC Every Silver PK must exist in at least one Bronze source row.
-# MAGIC Uses `left_anti join` Silver PKs onto Bronze PKs.
-# MAGIC Empty result = Silver is a proper subset of Bronze. Nothing invented.
 # MAGIC
 
 # COMMAND ----------
@@ -1109,63 +1101,14 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
 # MAGIC %md
 # MAGIC ## R3 -- Reconciliation: Reverse Row Integrity (Silver to Bronze)
 # MAGIC
-# MAGIC **Direction: Silver -> Bronze**
-# MAGIC
-# MAGIC This is the reverse test you requested. Since Silver is a **subset** of Bronze,
-# MAGIC every Silver row must be traceable back to its origin Bronze row.
-# MAGIC
-# MAGIC **Method:**
-# MAGIC 1. Take each Silver row's key columns.
-# MAGIC 2. Compute a SHA-256 fingerprint over those columns.
-# MAGIC 3. Compute the same fingerprint over the matching Bronze columns (after applying
-# MAGIC    the same cast/transform expressions the pipeline uses).
-# MAGIC 4. `left_anti` join Silver fingerprints onto Bronze fingerprints.
-# MAGIC 5. Assert the result is empty -- every Silver fingerprint exists in Bronze.
-# MAGIC
-# MAGIC A non-empty result means a Silver row was **invented** -- its data does not
-# MAGIC match any Bronze row after applying the same transformation.
-# MAGIC
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r3_every_silver_row_traces_to_bronze(spark, entry):
-    """
-    R3 -- Reverse row integrity: every Silver row must trace back to a Bronze row.
-
-    Silver is a subset of Bronze. For every Silver row, a matching row must
-    exist in Bronze after applying the same transformation the pipeline uses.
-
-    Method:
-      1. Select traceable key columns from Silver.
-      2. Apply the same deterministic cast to Bronze source columns.
-      3. SHA-256 fingerprint both sides over those columns.
-      4. subtract(): Silver hashes NOT IN Bronze hashes must be empty.
-      5. Assert empty -- every Silver row has a confirmed Bronze origin.
-
-    IMPORTANT -- columns used for fingerprinting:
-      Only columns that use pure SQL expressions (no pandas UDFs) are used.
-      Pandas UDFs (standardize_text, clean_text, standardize_geo) convert
-      NULL to the string "nan" in Spark, but the test helpers (_std, _geo, _clean)
-      use COALESCE(..., "") which produces "" for NULL.
-      "nan" != "" -> SHA-256 mismatch -> false failure.
-      Fix: use only columns whose Bronze->Silver transform is a pure SQL expression.
-
-    Columns per table:
-      listings_silver_merged : listing_id only
-        (try_cast(id as long).cast("string") -- pure SQL, no UDF)
-      car_catalog            : SQL path (r3_catalog_sql=True, avoids gRPC plan limit)
-      listings_text          : listing_id only
-        (id.cast(double).cast(long).cast(string) -- pure SQL, no UDF)
-      listings_photo         : listing_id only
-        (id.cast(double).cast(long).cast(string) -- pure SQL, no UDF)
-      geography              : latitude + longitude
-        (lat.cast("double"), lon.cast("double") -- pure SQL cast, no UDF)
-    """
+    
     if entry.get("r3_catalog_sql"):
-        # ── car_catalog: SQL path to avoid gRPC RESOURCE_EXHAUSTED ───────────
-        # Cyrillic Bronze column names in PySpark .select() exceed gRPC plan limit.
-        # SQL sends compact text -- no size issue.
+        
         silver_table = entry["silver"]
         bronze_table = entry["bronze_sources"][0]
 
