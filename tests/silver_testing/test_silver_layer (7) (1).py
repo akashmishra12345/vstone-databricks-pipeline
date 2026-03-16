@@ -1026,23 +1026,28 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
     """
     R2 -- Forward subset: every Silver PK must trace back to Bronze.
 
-    Method:
-      1. Apply the same cast expression to Bronze PK column(s) that the pipeline uses.
-      2. left_anti join Silver PKs onto Bronze PKs.
-      3. Assert the anti-join result is empty.
+    For every Silver row, the traceable key columns (those with a Bronze equivalent
+    defined in pk_bronze_col) must exist in Bronze after applying the same cast.
 
-    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED.
-    PySpark .select() with Cyrillic column names + expressions generates a large
-    protobuf plan (>8192 bytes). SQL sends a compact text string instead.
+    Why pk_bronze_col columns only (not all primary_key columns):
+      Some Silver PK columns are derived from Bronze via pandas UDFs
+      (e.g. photo_url_clean = standardize_text(photo_url)) which cannot be
+      replicated in the test without hitting the same NULL-to-"nan" mismatch.
+      Only columns with a pure-SQL Bronze equivalent are used for the join.
+      If listing_id exists in Bronze, the row origin is proven regardless of
+      the other PK columns (which are derived from that same Bronze row).
 
-    SQL approach for car_catalog:
-      Register Silver as a temp view, Bronze as a temp view.
-      Run LEFT ANTI JOIN in SQL -- compact plan, no gRPC size issue.
-      Bronze PKs use TRIM(CAST(col AS STRING)) to normalise whitespace,
-      matching clean_text strip behaviour for non-null values.
+    pk_bronze_col join columns per table:
+      listings_silver_merged     : listing_id <- try_cast(id as long).cast("string")
+      car_catalog_transformation : brand, model, generation <- clean_text(Марка/Модель/Поколение)
+      listings_text              : listing_id <- id.cast(double).cast(long).cast(string)
+      listings_photo             : listing_id <- id.cast(double).cast(long).cast(string)
+      geography                  : city_name, city_prepositional <- standardize_geo/pass
+
+    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED (Cyrillic plan size).
     """
     if entry.get("r2_catalog_sql"):
-        # ── car_catalog SQL path ──────────────────────────────────────────────
+        # ── car_catalog: SQL path to avoid gRPC plan size limit ───────────────
         silver_table = entry["silver"]
         bronze_table = entry["bronze_sources"][0]
 
@@ -1054,41 +1059,48 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
             ) s
             LEFT ANTI JOIN (
                 SELECT DISTINCT
-                    TRIM(CAST(`Марка`    AS STRING)) AS brand,
-                    TRIM(CAST(`Модель`   AS STRING)) AS model,
-                    TRIM(CAST(`Поколение` AS STRING)) AS generation
+                    TRIM(CAST(`Марка`     AS STRING)) AS brand,
+                    TRIM(CAST(`Модель`    AS STRING)) AS model,
+                    TRIM(CAST(`Поколение`  AS STRING)) AS generation
                 FROM {bronze_table}
             ) b
-            ON s.brand = b.brand
-            AND s.model = b.model
+            ON  s.brand      = b.brand
+            AND s.model      = b.model
             AND s.generation = b.generation
         """).collect()[0]["cnt"]
 
         assert result == 0, (
             f"[{entry['name']}] {result:,} Silver PKs (brand, model, generation) "
             "have no matching record in Bronze. "
-            "Pipeline produced brand/model/generation values not traceable to Bronze source."
+            "Pipeline produced values not traceable to Bronze source."
         )
 
     else:
-        # ── Standard PySpark path for all other tables ────────────────────────
-        pk_map     = entry["pk_bronze_col"]
-        silver_pks = entry["primary_key"]
+        # ── Standard PySpark path ─────────────────────────────────────────────
+        pk_map = entry["pk_bronze_col"]
 
-        df_silver     = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
+        # Use ONLY the columns that have a Bronze equivalent in pk_bronze_col.
+        # This avoids joining on photo_url_clean (not in Bronze) for
+        # listings_photo_transformation, and avoids UDF-derived columns that
+        # cannot be replicated exactly without hitting NULL mismatch issues.
+        join_cols = list(pk_map.keys())
+
+        df_silver     = spark.read.table(entry["silver"]).select(*join_cols).distinct()
         df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
 
         bronze_select = [
-            pk_map[s_col][1](pk_map[s_col][0]).alias(s_col)
-            for s_col in silver_pks if s_col in pk_map
+            pk_map[col][1](pk_map[col][0]).alias(col)
+            for col in join_cols
         ]
         df_bronze_pks = df_bronze_raw.select(bronze_select).distinct()
 
-        orphaned = df_silver.join(df_bronze_pks, on=silver_pks, how="left_anti").count()
+        orphaned = df_silver.join(df_bronze_pks, on=join_cols, how="left_anti").count()
 
         assert orphaned == 0, (
-            f"[{entry['name']}] {orphaned:,} Silver PKs have no matching Bronze record. "
-            f"PKs: {silver_pks}. Pipeline invented PKs not present in Bronze."
+            f"[{entry['name']}] {orphaned:,} Silver rows have no matching Bronze record.\n"
+            f"  Join columns: {join_cols}\n"
+            "  Every Silver row must be traceable to a Bronze source row.\n"
+            "  If listing_id (or brand+model) exists in Bronze, the row origin is proven."
         )
 
 
