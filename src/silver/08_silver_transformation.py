@@ -168,6 +168,7 @@ def _transform_listings(df):
     .withColumn("listing_month",  F.date_format(F.col("listing_date"), "MM").cast("integer"))
     .withColumn("brand_std",      F.upper(F.trim(F.col("brand"))))
     .withColumn("silver_load_dt", F.current_timestamp()))
+    
 
 
 _LISTINGS_VALID_FILTER = (

@@ -97,7 +97,6 @@ def _eng_pow(col): return F.expr(f"try_cast(regexp_replace(`{col}`,' л.с.','')
 
 REGISTRY = [
     # ── listings_silver_merged ────────────────────────────────────────────────
-    # Hard filters (_LISTINGS_VALID_FILTER): listing_id, price_rub, listing_date
     
     {
         "name"               : "listings_silver_merged",

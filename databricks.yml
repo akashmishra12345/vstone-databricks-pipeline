@@ -25,5 +25,4 @@ targets:
       host: https://dbc-053c659a-8cbc.cloud.databricks.com
       root_path: /Users/akash.r.mishra@v4c.ai/.bundle/${bundle.name}/${bundle.target}
     run_as:
-      # Removed 'permissions' from here to fix the error
       user_name: akash.r.mishra@v4c.ai
