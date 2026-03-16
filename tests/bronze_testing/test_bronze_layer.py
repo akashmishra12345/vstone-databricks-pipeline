@@ -14,15 +14,6 @@
 # MAGIC | **Reconciliation** | R3 — Bronze→Source Integrity | 1 | Every Bronze row fingerprint traces back to source (no invention) |
 # MAGIC
 # MAGIC **Total: 25 tests across 8 Bronze tables**
-# MAGIC
-# MAGIC ### Null exclusion per pipeline
-# MAGIC | Table | Pipeline null handling | Test exclusion |
-# MAGIC |-------|----------------------|----------------|
-# MAGIC | `listings_csv_copyinto` | Step 4: `DELETE FROM WHERE id IS NULL` | Exclude null-id source rows before counting |
-# MAGIC | `listings_json_autoloader` | `foreachBatch`: `filter(id IS NOT NULL)` before MERGE | Exclude null-id source rows |
-# MAGIC | `listings_xml_pyspark` | `filter(id IS NOT NULL)` before write | Exclude null-id source rows |
-# MAGIC | `listings_csv_dlt` | `@dlt.expect` warn-only — rows **not** dropped | No exclusion |
-# MAGIC | All others | `@dlt.expect` warn-only or no id column | No exclusion |
 
 # COMMAND ----------
 
@@ -68,14 +59,7 @@ def B(table: str) -> str:
 # MAGIC ## Registry
 # MAGIC
 # MAGIC Single source of truth for all 8 Bronze tables. Every field is derived
-# MAGIC directly from the ingestion pipeline source files (03–07).
-# MAGIC
-# MAGIC **Key fields explained:**
-# MAGIC - `expected_cols` — exact column list from each pipeline's `StructType` / `CREATE TABLE` DDL
-# MAGIC - `null_exclude_col` — column whose null rows the pipeline purges/filters; excluded from source
-# MAGIC   count before comparison so the test mirrors exactly what the pipeline does
-# MAGIC - `source_file_value` — exact string expected in the `source_file` audit column
-# MAGIC - `has_id` — whether this table has an `id` column (catalog and geo do not)
+# MAGIC directly from the ingestion pipeline source files.
 
 # COMMAND ----------
 
@@ -332,9 +316,6 @@ def row_hash(df, cols: list):
 
 # MAGIC %md
 # MAGIC ## U1 — Unit Tests: Schema & Data Types
-# MAGIC
-# MAGIC Tests the structure of each Bronze table independently of source files.
-# MAGIC Ground truth: each pipeline's explicit `StructType` / `CREATE TABLE` DDL.
 
 # COMMAND ----------
 
@@ -828,17 +809,6 @@ def test_u3_text_multiline_not_truncated(spark):
 # MAGIC ## R1 — Reconciliation: Row Count (Source == Bronze)
 # MAGIC
 # MAGIC Compares the row count of the source file against the Bronze table.
-# MAGIC
-# MAGIC For tables where the pipeline removes rows before writing (null-id purge/filter),
-# MAGIC the source DataFrame is pre-filtered identically before counting so the comparison
-# MAGIC is always apples-to-apples.
-# MAGIC
-# MAGIC | Table | Source exclusion applied before counting |
-# MAGIC |-------|------------------------------------------|
-# MAGIC | `listings_csv_copyinto` | Exclude `id IS NULL` (mirrors Step 4 DELETE) |
-# MAGIC | `listings_json_autoloader` | Exclude `id IS NULL` (mirrors foreachBatch filter) |
-# MAGIC | `listings_xml_pyspark` | Exclude `id IS NULL` (mirrors pre-write filter) |
-# MAGIC | All others | No exclusion |
 
 # COMMAND ----------
 
@@ -897,15 +867,6 @@ def test_r1_bronze_not_inflated_beyond_source(spark, entry):
 # MAGIC ## R2 — Row-to-Row Integrity: Every Source Row Exists in Bronze
 # MAGIC
 # MAGIC For every row in the source file, a matching SHA-256 fingerprint must exist in Bronze.
-# MAGIC
-# MAGIC The fingerprint is computed over all **common columns** — columns present in both
-# MAGIC source file and Bronze table, excluding audit columns (`load_dt`, `source_file`,
-# MAGIC `_rescued_data`) which do not exist in the source.
-# MAGIC
-# MAGIC **What this catches that R1 cannot:**
-# MAGIC - Two rows were corrupted but cancelled each other (count matches, data is wrong)
-# MAGIC - A value was truncated, encoding was changed, or a column was silently modified
-# MAGIC - A row was dropped and a different row was invented (same count, different data)
 
 # COMMAND ----------
 

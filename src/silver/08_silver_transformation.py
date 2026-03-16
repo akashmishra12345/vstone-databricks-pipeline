@@ -143,16 +143,16 @@ def _transform_listings(df):
         F.expr("try_cast(try_cast(year as double) as int)").alias("manufacture_year"),
         F.expr("try_cast(try_cast(power as double) as int)").alias("engine_power"),
         F.expr("try_cast(try_cast(probeg as double) as int)").alias("mileage_km"),
-        F.col("engine").alias("fuel_type"),
-        F.col("transmission").alias("transmission_type"),
-        F.col("gear").alias("drive_type"),
-        F.col("sWheel").alias("steering_wheel"),
-        F.col("complectation").alias("trim_level"),
+        standardize_text(F.col("engine")).alias("fuel_type"),         # lower+strip — matches catalog normalisation
+        standardize_text(F.col("transmission")).alias("transmission_type"),  # lower+strip
+        standardize_text(F.col("gear")).alias("drive_type"),          # lower+strip
+        standardize_text(F.col("sWheel")).alias("steering_wheel"),    # lower+strip — enables reliable encoding in Gold
+        standardize_text(F.col("complectation")).alias("trim_level"), # lower+strip — matches catalog normalisation
         F.col("place").alias("city_prepositional"),
         F.expr("try_cast(has_license as int)").alias("has_license"),
-        F.expr("coalesce(cast(R as string), '')").alias("color_r"),
-        F.expr("coalesce(cast(G as string), '')").alias("color_g"),
-        F.expr("coalesce(cast(B as string), '')").alias("color_b"),
+        F.expr("try_cast(R as int)").alias("color_r"),    # INT 0-255 
+        F.expr("try_cast(G as int)").alias("color_g"),    # INT 0-255 
+        F.expr("try_cast(B as int)").alias("color_b"),    # INT 0-255 
         F.col("source_file").alias("bronze_source_file"),
         F.col("load_dt").alias("bronze_load_dt"),
     )
@@ -324,9 +324,16 @@ def _transform_catalog(df):
         .withColumn("seats_count",        F.expr("try_cast(regexp_replace(seats_count, ' мест', '') as int)"))
         .withColumn("acceleration_0_100", F.expr("try_cast(regexp_replace(acceleration_0_100, ',', '.') as double)"))
         .withColumn("max_speed_kmh",      F.expr("try_cast(max_speed_kmh as int)")))
-    for c in ["brand","model","generation","trim_level","fuel_type","transmission","drive_type","body_type"]:
+    # Display value columns: strip only, preserve case
+    for c in ["brand", "model", "generation", "trim_level", "body_type"]:
         if c in df.columns:
             df = df.withColumn(c, clean_text(F.col(c)))
+    # Join key columns: lower+strip so they match listings_silver_merged normalisation.
+    # _transform_listings applies standardize_text to fuel_type, transmission, drive_type.
+    # Using clean_text here would produce case mismatches on any listing-catalog join.
+    for c in ["fuel_type", "transmission", "drive_type"]:
+        if c in df.columns:
+            df = df.withColumn(c, standardize_text(F.col(c)))
     return (df
         .withColumn("bronze_load_dt",     F.col("load_dt"))
         .withColumn("bronze_source_file", F.col("source_file"))
