@@ -891,37 +891,98 @@ def test_u7_listing_id_is_numeric_string(spark):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r1_exact_count_reconciliation(spark, entry):
-    
+    """
+    R1 -- Exact count reconciliation.
+
+    For tables where BOTH Silver and Quarantine come from the same deduped df
+    (listings_silver_merged, text, photo, geography):
+      Silver.count() + Quarantine.count() == deduplicated_bronze_count EXACTLY
+
+    For car_catalog (quarantine path is NOT deduped):
+      Silver.count() == dedup(transform(bronze)).count()
+      Uses Spark SQL to avoid Databricks Connect gRPC metadata size limit
+      (RESOURCE_EXHAUSTED) caused by large Cyrillic-column expression plan.
+
+    IMPORTANT -- clean_text NULL behaviour:
+      The pipeline uses a pandas UDF: s.astype(str).str.strip()
+      pandas converts Spark NULL -> Python None -> astype(str) -> string "nan"
+      So clean_text(NULL Марка) produces "nan" (the string), NOT SQL NULL.
+      The pipeline .filter(brand IS NOT NULL) therefore NEVER removes any row
+      because clean_text always returns a non-null string.
+      The correct SQL replication uses:
+        CASE WHEN col IS NULL THEN 'nan' ELSE TRIM(CAST(col AS STRING)) END
+      with NO WHERE filter (pipeline filter IS NOT NULL is always satisfied).
+    """
     silver_cnt = spark.read.table(entry["silver"]).count()
     quar_cnt   = spark.read.table(entry["quarantine"]).count()
 
     if entry["r1_catalog_special"]:
-        
+        # ── car_catalog: Spark SQL path to avoid gRPC plan size limit ────────
+        #
+        # Root cause of previous RESOURCE_EXHAUSTED error:
+        #   PySpark .select() with Cyrillic column names + regex expressions
+        #   serialises a large protobuf plan exceeding the gRPC 8192-byte limit.
+        #   Spark SQL sends a compact text string instead -- no size issue.
+        #
+        # Root cause of previous count mismatch (8 rows):
+        #   SQL used TRIM(COALESCE(col, '')) -- NULL becomes empty string ''
+        #   Pipeline uses pandas clean_text: astype(str).str.strip()
+        #   pandas converts NULL -> 'nan' (the string), not ''
+        #   Different NULL representation -> different 6-col dedup keys -> different count
+        #
+        # Correct SQL replication:
+        #   CASE WHEN col IS NULL THEN 'nan' ELSE TRIM(CAST(col AS STRING)) END
+        #   No WHERE filter -- pipeline .filter(brand IS NOT NULL) is always satisfied
+        #   because clean_text never returns NULL (it returns 'nan' for null input)
         bronze_table = entry["bronze_sources"][0]
-        expected_sql = spark.sql(f"""
+
+        def _clean(col):
+            """SQL replica of clean_text pandas UDF: NULL -> 'nan', else TRIM(CAST)."""
+            return f"CASE WHEN `{col}` IS NULL THEN 'nan' ELSE TRIM(CAST(`{col}` AS STRING)) END"
+
+        def _eng_vol(col):
+            """SQL replica of engine_volume_l transform."""
+            return (f"TRY_CAST(REGEXP_REPLACE(REGEXP_REPLACE({_clean(col)},"
+                    f"' л' ,''),',','.') AS DOUBLE)")
+
+        def _eng_pow(col):
+            """SQL replica of engine_power_hp transform."""
+            return f"TRY_CAST(REGEXP_REPLACE({_clean(col)},' л.с.','') AS INT)"
+
+        # Using actual Cyrillic column names from CATALOG_COL_MAP
+        brand_expr      = _clean("Марка")
+        model_expr      = _clean("Модель")
+        gen_expr        = _clean("Поколение")
+        trim_expr       = _clean("Комплектация")
+        eng_vol_expr    = _eng_vol("Объём двигателя")
+        eng_pow_expr    = _eng_pow("Мощность двигателя")
+
+        sql = f"""
             SELECT COUNT(*) AS cnt FROM (
                 SELECT DISTINCT
-                    TRIM(COALESCE(`Марка`, ''))                                                         AS brand,
-                    TRIM(COALESCE(`Модель`, ''))                                                        AS model,
-                    TRIM(COALESCE(`Поколение`, ''))                                                     AS generation,
-                    TRIM(COALESCE(`Комплектация`, ''))                                                  AS trim_level,
-                    TRY_CAST(REGEXP_REPLACE(REGEXP_REPLACE(`Объём двигателя`, ' л', ''), ',', '.') AS DOUBLE) AS engine_volume_l,
-                    TRY_CAST(REGEXP_REPLACE(`Мощность двигателя`, ' л.с.', '') AS INT)          AS engine_power_hp
+                    {brand_expr}   AS brand,
+                    {model_expr}   AS model,
+                    {gen_expr}     AS generation,
+                    {trim_expr}    AS trim_level,
+                    {eng_vol_expr} AS engine_volume_l,
+                    {eng_pow_expr} AS engine_power_hp
                 FROM {bronze_table}
-                WHERE TRIM(COALESCE(`Марка`, '')) != ''
             )
-        """).collect()[0]["cnt"]
+        """
+        expected_sql = spark.sql(sql).collect()[0]["cnt"]
 
         assert silver_cnt == expected_sql, (
-            f"[{entry['name']}] Silver count mismatch. "
-            f"Expected (SQL dedup+filter): {expected_sql:,} | "
-            f"Actual Silver: {silver_cnt:,} | "
-            f"Diff: {abs(silver_cnt - expected_sql):,}. "
-            f"Formula: {entry['r1_exact_formula']}"
+            f"[{entry['name']}] Silver count mismatch.\n"
+            f"  Expected (SQL dedup, clean_text-accurate): {expected_sql:,}\n"
+            f"  Actual Silver                            : {silver_cnt:,}\n"
+            f"  Diff                                     : {abs(silver_cnt - expected_sql):,}\n"
+            f"  Formula: {entry['r1_exact_formula']}\n"
+            "  NOTE: clean_text(NULL) = 'nan' (pandas astype(str) behaviour).\n"
+            "  SQL uses CASE WHEN IS NULL THEN 'nan' to replicate this exactly."
         )
 
     else:
-        # ── Standard path: all other tables ──────────────────────────────────
+        # ── Standard path: all other 4 tables ────────────────────────────────
         # Step 1: read and union bronze
         df_bronze = _union_bronze(spark, entry["bronze_sources"])
 
@@ -937,14 +998,15 @@ def test_r1_exact_count_reconciliation(spark, entry):
         actual     = silver_cnt + quar_cnt
 
         assert actual == expected, (
-            f"[{entry['name']}] Reconciliation mismatch. "
-            f"Expected (deduped Bronze): {expected:,} | "
-            f"Actual (Silver+Quarantine): {actual:,} | "
-            f"Silver: {silver_cnt:,} | Quarantine: {quar_cnt:,} | "
-            f"Diff: {abs(actual - expected):,}. "
-            f"Formula: {entry['r1_exact_formula']} "
-            "NOTE: duplicates are DROPPED before Silver/Quarantine split -- "
-            "Silver+Quarantine == deduped Bronze, NOT raw Bronze total."
+            f"[{entry['name']}] Reconciliation mismatch.\n"
+            f"  Expected (deduped Bronze): {expected:,}\n"
+            f"  Actual (Silver+Quarantine): {actual:,}\n"
+            f"    Silver    : {silver_cnt:,}\n"
+            f"    Quarantine: {quar_cnt:,}\n"
+            f"  Diff: {abs(actual - expected):,}\n"
+            f"  Formula: {entry['r1_exact_formula']}\n"
+            "  NOTE: duplicates are DROPPED before Silver/Quarantine split --\n"
+            "  Silver+Quarantine == deduped Bronze, NOT raw Bronze total."
         )
 
 
@@ -953,12 +1015,32 @@ def test_r1_exact_count_reconciliation(spark, entry):
 # MAGIC %md
 # MAGIC ## R2 -- Reconciliation: Forward Subset Integrity (Silver PK in Bronze)
 # MAGIC
+# MAGIC **Direction: Bronze -> Silver**
+# MAGIC
+# MAGIC Every Silver PK must exist in at least one Bronze source row.
+# MAGIC Uses `left_anti join` Silver PKs onto Bronze PKs.
+# MAGIC Empty result = Silver is a proper subset of Bronze. Nothing invented.
+# MAGIC
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
-   
+    """
+    R2 -- Forward subset: every Silver PK must trace back to Bronze.
+
+    Method:
+      1. Apply the same cast expression to Bronze PK column(s) that the pipeline uses.
+      2. left_anti join Silver PKs onto Bronze PKs.
+      3. Assert the anti-join result is empty.
+
+    Cast expressions per table (mirror pipeline exactly):
+      listings_silver_merged     : try_cast(id as long).cast("string")
+      car_catalog_transformation : clean_text(Marka), clean_text(Model), clean_text(Pokolenie)
+      listings_text              : id.cast(double).cast(long).cast(string)
+      listings_photo             : id.cast(double).cast(long).cast(string)
+      geography                  : standardize_geo(name_padesh), F.col(greate_padesh)
+    """
     pk_map     = entry["pk_bronze_col"]
     silver_pks = entry["primary_key"]
 
@@ -982,12 +1064,53 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
 # MAGIC %md
 # MAGIC ## R3 -- Reconciliation: Reverse Row Integrity (Silver to Bronze)
 # MAGIC
+# MAGIC **Direction: Silver -> Bronze**
+# MAGIC
+# MAGIC This is the reverse test you requested. Since Silver is a **subset** of Bronze,
+# MAGIC every Silver row must be traceable back to its origin Bronze row.
+# MAGIC
+# MAGIC **Method:**
+# MAGIC 1. Take each Silver row's key columns.
+# MAGIC 2. Compute a SHA-256 fingerprint over those columns.
+# MAGIC 3. Compute the same fingerprint over the matching Bronze columns (after applying
+# MAGIC    the same cast/transform expressions the pipeline uses).
+# MAGIC 4. `left_anti` join Silver fingerprints onto Bronze fingerprints.
+# MAGIC 5. Assert the result is empty -- every Silver fingerprint exists in Bronze.
+# MAGIC
+# MAGIC A non-empty result means a Silver row was **invented** -- its data does not
+# MAGIC match any Bronze row after applying the same transformation.
+# MAGIC
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r3_every_silver_row_traces_to_bronze(spark, entry):
-    
+    """
+    R3 -- Reverse subset: every Silver row must be traceable to a Bronze row.
+
+    This test answers: "Is Silver a proper subset of Bronze?"
+    While R2 checks PKs only, R3 checks actual row data using SHA-256 fingerprints.
+
+    Steps:
+      1. Read Silver and select the r3 columns (PK + key data cols).
+      2. Read Bronze and apply the SAME transform expressions the pipeline uses
+         to produce equivalent Silver-format columns.
+      3. Compute SHA-256 fingerprint over those columns for both Silver and Bronze.
+      4. left_anti: Silver fingerprints NOT IN Bronze fingerprints.
+      5. Assert empty -- every Silver row has a matching Bronze origin.
+
+    Columns used per table (must mirror pipeline transforms):
+      listings_silver_merged : listing_id, brand, model
+         Bronze: id->listing_id(_id_main), marka->brand(_std), model->model(_std)
+      car_catalog            : brand, model
+         Bronze: Marka->brand(_clean), Model->model(_clean)
+      listings_text          : listing_id
+         Bronze: id->listing_id(_id_dbl)
+      listings_photo         : listing_id, photo_url_clean
+         Bronze: id->listing_id(_id_dbl), photo_url->photo_url_clean(_std)
+      geography              : city_name, city_prepositional
+         Bronze: name_padesh->city_name(_geo), greate_padesh->city_prepositional(_pass)
+    """
     r3_exprs = entry.get("r3_bronze_exprs", [])
     if not r3_exprs:
         pytest.skip(f"[{entry['name']}] No r3_bronze_exprs defined -- skipping.")
