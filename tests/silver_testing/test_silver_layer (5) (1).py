@@ -251,6 +251,8 @@ REGISTRY = [
         "r1_quar_from_same_dedup": False,
         "r1_silver_filter"       : lambda df: df.filter(F.col("brand").isNotNull()),
         "r1_catalog_special"     : True,
+        "r2_catalog_sql"         : True,   # use SQL to avoid gRPC RESOURCE_EXHAUSTED
+        "r3_catalog_sql"         : True,   # use SQL to avoid gRPC RESOURCE_EXHAUSTED
         "r1_bronze_cyrillic_map" : {
             "Marka":         "Marka",
             "Model":         "Model",
@@ -1021,30 +1023,66 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
       2. left_anti join Silver PKs onto Bronze PKs.
       3. Assert the anti-join result is empty.
 
-    Cast expressions per table (mirror pipeline exactly):
-      listings_silver_merged     : try_cast(id as long).cast("string")
-      car_catalog_transformation : clean_text(Marka), clean_text(Model), clean_text(Pokolenie)
-      listings_text              : id.cast(double).cast(long).cast(string)
-      listings_photo             : id.cast(double).cast(long).cast(string)
-      geography                  : standardize_geo(name_padesh), F.col(greate_padesh)
+    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED.
+    PySpark .select() with Cyrillic column names + expressions generates a large
+    protobuf plan (>8192 bytes). SQL sends a compact text string instead.
+
+    SQL approach for car_catalog:
+      Register Silver as a temp view, Bronze as a temp view.
+      Run LEFT ANTI JOIN in SQL -- compact plan, no gRPC size issue.
+      Bronze PKs use TRIM(CAST(col AS STRING)) to normalise whitespace,
+      matching clean_text strip behaviour for non-null values.
     """
-    pk_map     = entry["pk_bronze_col"]
-    silver_pks = entry["primary_key"]
+    if entry.get("r2_catalog_sql"):
+        # ── car_catalog SQL path ──────────────────────────────────────────────
+        silver_table = entry["silver"]
+        bronze_table = entry["bronze_sources"][0]
 
-    df_silver     = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
-    df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
+        result = spark.sql(f"""
+            SELECT COUNT(*) AS cnt
+            FROM (
+                SELECT DISTINCT brand, model, generation
+                FROM {silver_table}
+            ) s
+            LEFT ANTI JOIN (
+                SELECT DISTINCT
+                    TRIM(CAST(`Марка`    AS STRING)) AS brand,
+                    TRIM(CAST(`Модель`   AS STRING)) AS model,
+                    TRIM(CAST(`Поколение` AS STRING)) AS generation
+                FROM {bronze_table}
+            ) b
+            ON s.brand = b.brand
+            AND s.model = b.model
+            AND s.generation = b.generation
+        """).collect()[0]["cnt"]
 
-    bronze_select = [
-        pk_map[s_col][1](pk_map[s_col][0]).alias(s_col)
-        for s_col in silver_pks if s_col in pk_map
-    ]
-    df_bronze_pks = df_bronze_raw.select(bronze_select).distinct()
+        assert result == 0, (
+            f"[{entry['name']}] {result:,} Silver PKs (brand, model, generation) "
+            "have no matching record in Bronze. "
+            "Pipeline produced brand/model/generation values not traceable to Bronze source."
+        )
 
-    orphaned = df_silver.join(df_bronze_pks, on=silver_pks, how="left_anti").count()
-    assert orphaned == 0, (
-        f"[{entry['name']}] {orphaned:,} Silver PKs have no matching Bronze record. "
-        f"PKs: {silver_pks}. Pipeline invented rows not present in Bronze."
-    )
+    else:
+        # ── Standard PySpark path for all other tables ────────────────────────
+        pk_map     = entry["pk_bronze_col"]
+        silver_pks = entry["primary_key"]
+
+        df_silver     = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
+        df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
+
+        bronze_select = [
+            pk_map[s_col][1](pk_map[s_col][0]).alias(s_col)
+            for s_col in silver_pks if s_col in pk_map
+        ]
+        df_bronze_pks = df_bronze_raw.select(bronze_select).distinct()
+
+        orphaned = df_silver.join(df_bronze_pks, on=silver_pks, how="left_anti").count()
+
+        assert orphaned == 0, (
+            f"[{entry['name']}] {orphaned:,} Silver PKs have no matching Bronze record. "
+            f"PKs: {silver_pks}. Pipeline invented PKs not present in Bronze."
+        )
+
 
 # COMMAND ----------
 
@@ -1075,50 +1113,75 @@ def test_r3_every_silver_row_traces_to_bronze(spark, entry):
     """
     R3 -- Reverse subset: every Silver row must be traceable to a Bronze row.
 
-    This test answers: "Is Silver a proper subset of Bronze?"
-    While R2 checks PKs only, R3 checks actual row data using SHA-256 fingerprints.
+    This is the reverse test: Silver is a subset of Bronze.
+    For every Silver row, a matching row must exist in Bronze after applying
+    the same transformation the pipeline uses.
 
-    Steps:
-      1. Read Silver and select the r3 columns (PK + key data cols).
-      2. Read Bronze and apply the SAME transform expressions the pipeline uses
-         to produce equivalent Silver-format columns.
-      3. Compute SHA-256 fingerprint over those columns for both Silver and Bronze.
-      4. left_anti: Silver fingerprints NOT IN Bronze fingerprints.
-      5. Assert empty -- every Silver row has a matching Bronze origin.
+    Method:
+      1. Select key columns from Silver.
+      2. Apply same transform to matching Bronze columns.
+      3. SHA-256 fingerprint both sides.
+      4. subtract(): Silver hashes NOT IN Bronze hashes must be empty.
 
-    Columns used per table (must mirror pipeline transforms):
-      listings_silver_merged : listing_id, brand, model
-         Bronze: id->listing_id(_id_main), marka->brand(_std), model->model(_std)
-      car_catalog            : brand, model
-         Bronze: Marka->brand(_clean), Model->model(_clean)
-      listings_text          : listing_id
-         Bronze: id->listing_id(_id_dbl)
-      listings_photo         : listing_id, photo_url_clean
-         Bronze: id->listing_id(_id_dbl), photo_url->photo_url_clean(_std)
-      geography              : city_name, city_prepositional
-         Bronze: name_padesh->city_name(_geo), greate_padesh->city_prepositional(_pass)
+    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED.
+    Cyrillic Bronze column names in PySpark .select() generate a large
+    protobuf plan. SQL sends a compact text string -- no size issue.
     """
-    r3_exprs = entry.get("r3_bronze_exprs", [])
-    if not r3_exprs:
-        pytest.skip(f"[{entry['name']}] No r3_bronze_exprs defined -- skipping.")
+    if entry.get("r3_catalog_sql"):
+        # ── car_catalog SQL path ──────────────────────────────────────────────
+        # Compare brand + model fingerprints between Silver and Bronze.
+        # Bronze: TRIM(CAST(`Марка` AS STRING)) and TRIM(CAST(`Модель` AS STRING))
+        # Silver: brand and model (already clean_text processed).
+        # We check Silver brand+model exists in Bronze Марка+Модель (normalised).
+        silver_table = entry["silver"]
+        bronze_table = entry["bronze_sources"][0]
 
-    silver_cols = [alias for _, alias, _ in r3_exprs]
+        orphaned = spark.sql(f"""
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT SHA2(CONCAT_WS('||',
+                    COALESCE(TRIM(CAST(brand AS STRING)), ''),
+                    COALESCE(TRIM(CAST(model AS STRING)), '')
+                ), 256) AS row_hash
+                FROM {silver_table}
+            ) s
+            WHERE s.row_hash NOT IN (
+                SELECT SHA2(CONCAT_WS('||',
+                    COALESCE(TRIM(CAST(`Марка`  AS STRING)), ''),
+                    COALESCE(TRIM(CAST(`Модель` AS STRING)), '')
+                ), 256)
+                FROM {bronze_table}
+            )
+        """).collect()[0]["cnt"]
 
-    # Silver fingerprints
-    df_silver = spark.read.table(entry["silver"]).select(*silver_cols)
-    silver_hashes = _row_hash(df_silver, silver_cols)
+        assert orphaned == 0, (
+            f"[{entry['name']}] {orphaned:,} Silver rows (brand+model) "
+            "have no matching Bronze origin. "
+            "Pipeline produced brand/model values not traceable to Bronze source."
+        )
 
-    # Bronze fingerprints: apply the same transform expressions
-    df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
-    bronze_select = [tfn(col).alias(alias) for col, alias, tfn in r3_exprs]
-    df_bronze_transformed = df_bronze_raw.select(bronze_select)
-    bronze_hashes = _row_hash(df_bronze_transformed, silver_cols)
+    else:
+        # ── Standard PySpark path for all other tables ────────────────────────
+        r3_exprs = entry.get("r3_bronze_exprs", [])
+        if not r3_exprs:
+            pytest.skip(f"[{entry['name']}] No r3_bronze_exprs defined -- skipping.")
 
-    # Reverse left_anti: Silver rows not found in Bronze
-    orphaned = silver_hashes.subtract(bronze_hashes).count()
+        silver_cols = [alias for _, alias, _ in r3_exprs]
 
-    assert orphaned == 0, (
-        f"[{entry['name']}] {orphaned:,} Silver rows have no matching Bronze origin. "
-        f"Compared columns: {silver_cols}. "
-        "Silver must be a subset of Bronze -- no row can be invented by the pipeline."
-    )
+        # Silver fingerprints
+        df_silver     = spark.read.table(entry["silver"]).select(*silver_cols)
+        silver_hashes = _row_hash(df_silver, silver_cols)
+
+        # Bronze fingerprints: apply same transform expressions
+        df_bronze_raw        = _union_bronze(spark, entry["bronze_sources"])
+        bronze_select        = [tfn(col).alias(alias) for col, alias, tfn in r3_exprs]
+        df_bronze_transformed = df_bronze_raw.select(bronze_select)
+        bronze_hashes        = _row_hash(df_bronze_transformed, silver_cols)
+
+        orphaned = silver_hashes.subtract(bronze_hashes).count()
+
+        assert orphaned == 0, (
+            f"[{entry['name']}] {orphaned:,} Silver rows have no matching Bronze origin. "
+            f"Columns compared: {silver_cols}. "
+            "Silver must be a subset of Bronze -- pipeline cannot invent rows."
+        )
+
