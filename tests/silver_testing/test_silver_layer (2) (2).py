@@ -16,6 +16,27 @@
 # MAGIC | Reconciliation | R3 - Silver to Bronze row integrity (reverse) | 1 | Every Silver row traces back to a Bronze row (SHA-256 fingerprint) |
 # MAGIC
 # MAGIC **Total: 35 tests across 5 Silver tables + 5 Quarantine tables**
+# MAGIC
+# MAGIC ### Exact reconciliation formula per table
+# MAGIC
+# MAGIC | Table | Exact formula |
+# MAGIC |-------|---------------|
+# MAGIC | `listings_silver_merged` | `Silver + Quarantine == distinct(listing_id)` from transformed+deduped bronze union |
+# MAGIC | `listings_text_transformation` | `Silver + Quarantine == transform(bronze).dropDuplicates([listing_id]).count()` |
+# MAGIC | `listings_photo_transformation` | `Silver + Quarantine == transform(bronze).dropDuplicates([listing_id,photo_url_clean]).count()` |
+# MAGIC | `car_catalog_transformation` | `Silver == transform(bronze).dropDuplicates([6 cols]).filter(brand NOT NULL).count()` (quarantine path is NOT deduped) |
+# MAGIC | `geography_transformation` | `Silver + Quarantine == transform(bronze).dropDuplicates([city_name,city_prepositional]).count()` |
+# MAGIC
+# MAGIC ### Why Silver + Quarantine != raw Bronze total
+# MAGIC The pipeline calls `dropDuplicates()` **before** the Silver/Quarantine split.
+# MAGIC Duplicates are **dropped**, not routed to quarantine.
+# MAGIC `Silver + Quarantine = deduplicated Bronze`, not raw Bronze.
+# MAGIC
+# MAGIC ### Reverse test (R3 - Silver to Bronze)
+# MAGIC Silver is a **subset** of Bronze. For every Silver row, we must be able to find
+# MAGIC its origin row in Bronze by applying the same cast/transform to Bronze and
+# MAGIC computing a SHA-256 fingerprint match. A Silver row with no matching Bronze
+# MAGIC fingerprint means the pipeline invented data.
 
 # COMMAND ----------
 
@@ -870,52 +891,51 @@ def test_u7_listing_id_is_numeric_string(spark):
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r1_exact_count_reconciliation(spark, entry):
-    """
-    R1 -- Exact count reconciliation.
-
-    For tables where BOTH Silver and Quarantine come from the same deduped df
-    (listings_silver_merged, text, photo, geography):
-      Silver.count() + Quarantine.count() == deduplicated_bronze_count EXACTLY
-
-    For car_catalog (quarantine path NOT deduped):
-      Silver.count() == transform(bronze).dropDuplicates(6cols).filter(brand NOT NULL).count()
-
-    Reconciliation formula per table:
-      listings_silver_merged : Silver+Q == distinct(listing_id) from transformed union of 4 bronze
-      listings_text          : Silver+Q == transform(bronze).dropDuplicates([listing_id]).count()
-      listings_photo         : Silver+Q == transform(bronze).dropDuplicates([listing_id,photo_url_clean]).count()
-      geography              : Silver+Q == transform(bronze).dropDuplicates([city_name,city_prepositional]).count()
-      car_catalog            : Silver   == transform(bronze).dropDuplicates(6cols).filter(brand NOT NULL).count()
-    """
+    
     silver_cnt = spark.read.table(entry["silver"]).count()
     quar_cnt   = spark.read.table(entry["quarantine"]).count()
 
-    # Step 1: read and union bronze sources
-    df_bronze = _union_bronze(spark, entry["bronze_sources"])
-
-    # Step 2: apply the same transform expressions (cast/rename)
-    dedup_exprs = entry.get("r1_dedup_exprs", [])
-    df_transformed = df_bronze.select(
-        [tfn(col).alias(alias) for col, alias, tfn in dedup_exprs]
-    )
-
-    # Step 3: apply the same dropDuplicates the pipeline uses
-    dedup_cols = entry["r1_dedup_cols"]
-    df_deduped = df_transformed.dropDuplicates(dedup_cols)
-
     if entry["r1_catalog_special"]:
-        # car_catalog: quarantine is NOT deduped -- assert Silver count only
-        expected_silver = entry["r1_silver_filter"](df_deduped).count()
-        assert silver_cnt == expected_silver, (
+        
+        bronze_table = entry["bronze_sources"][0]
+        expected_sql = spark.sql(f"""
+            SELECT COUNT(*) AS cnt FROM (
+                SELECT DISTINCT
+                    TRIM(COALESCE(`Марка`, ''))                                                         AS brand,
+                    TRIM(COALESCE(`Модель`, ''))                                                        AS model,
+                    TRIM(COALESCE(`Поколение`, ''))                                                     AS generation,
+                    TRIM(COALESCE(`Комплектация`, ''))                                                  AS trim_level,
+                    TRY_CAST(REGEXP_REPLACE(REGEXP_REPLACE(`Объём двигателя`, ' л', ''), ',', '.') AS DOUBLE) AS engine_volume_l,
+                    TRY_CAST(REGEXP_REPLACE(`Мощность двигателя`, ' л.с.', '') AS INT)          AS engine_power_hp
+                FROM {bronze_table}
+                WHERE TRIM(COALESCE(`Марка`, '')) != ''
+            )
+        """).collect()[0]["cnt"]
+
+        assert silver_cnt == expected_sql, (
             f"[{entry['name']}] Silver count mismatch. "
-            f"Expected: {expected_silver:,} | Actual Silver: {silver_cnt:,} | "
-            f"Diff: {abs(silver_cnt - expected_silver):,}. "
+            f"Expected (SQL dedup+filter): {expected_sql:,} | "
+            f"Actual Silver: {silver_cnt:,} | "
+            f"Diff: {abs(silver_cnt - expected_sql):,}. "
             f"Formula: {entry['r1_exact_formula']}"
         )
+
     else:
-        # All other tables: Silver + Quarantine == deduped count EXACTLY
-        expected = df_deduped.count()
-        actual   = silver_cnt + quar_cnt
+        # ── Standard path: all other tables ──────────────────────────────────
+        # Step 1: read and union bronze
+        df_bronze = _union_bronze(spark, entry["bronze_sources"])
+
+        # Step 2: apply the same transform expressions (cast/rename)
+        dedup_exprs    = entry.get("r1_dedup_exprs", [])
+        df_transformed = df_bronze.select(
+            [tfn(col).alias(alias) for col, alias, tfn in dedup_exprs]
+        )
+
+        # Step 3: apply the same dropDuplicates the pipeline uses
+        df_deduped = df_transformed.dropDuplicates(entry["r1_dedup_cols"])
+        expected   = df_deduped.count()
+        actual     = silver_cnt + quar_cnt
+
         assert actual == expected, (
             f"[{entry['name']}] Reconciliation mismatch. "
             f"Expected (deduped Bronze): {expected:,} | "
@@ -923,41 +943,22 @@ def test_r1_exact_count_reconciliation(spark, entry):
             f"Silver: {silver_cnt:,} | Quarantine: {quar_cnt:,} | "
             f"Diff: {abs(actual - expected):,}. "
             f"Formula: {entry['r1_exact_formula']} "
-            "NOTE: duplicates are DROPPED by pipeline before Silver/Quarantine split "
-            "-- they do not go to quarantine. Silver+Quarantine = deduped Bronze, not raw Bronze."
+            "NOTE: duplicates are DROPPED before Silver/Quarantine split -- "
+            "Silver+Quarantine == deduped Bronze, NOT raw Bronze total."
         )
+
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC ## R2 -- Reconciliation: Forward Subset Integrity (Silver PK in Bronze)
 # MAGIC
-# MAGIC **Direction: Bronze -> Silver**
-# MAGIC
-# MAGIC Every Silver PK must exist in at least one Bronze source row.
-# MAGIC Uses `left_anti join` Silver PKs onto Bronze PKs.
-# MAGIC Empty result = Silver is a proper subset of Bronze. Nothing invented.
-# MAGIC
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
-    """
-    R2 -- Forward subset: every Silver PK must trace back to Bronze.
-
-    Method:
-      1. Apply the same cast expression to Bronze PK column(s) that the pipeline uses.
-      2. left_anti join Silver PKs onto Bronze PKs.
-      3. Assert the anti-join result is empty.
-
-    Cast expressions per table (mirror pipeline exactly):
-      listings_silver_merged     : try_cast(id as long).cast("string")
-      car_catalog_transformation : clean_text(Marka), clean_text(Model), clean_text(Pokolenie)
-      listings_text              : id.cast(double).cast(long).cast(string)
-      listings_photo             : id.cast(double).cast(long).cast(string)
-      geography                  : standardize_geo(name_padesh), F.col(greate_padesh)
-    """
+   
     pk_map     = entry["pk_bronze_col"]
     silver_pks = entry["primary_key"]
 
@@ -981,53 +982,12 @@ def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
 # MAGIC %md
 # MAGIC ## R3 -- Reconciliation: Reverse Row Integrity (Silver to Bronze)
 # MAGIC
-# MAGIC **Direction: Silver -> Bronze**
-# MAGIC
-# MAGIC This is the reverse test you requested. Since Silver is a **subset** of Bronze,
-# MAGIC every Silver row must be traceable back to its origin Bronze row.
-# MAGIC
-# MAGIC **Method:**
-# MAGIC 1. Take each Silver row's key columns.
-# MAGIC 2. Compute a SHA-256 fingerprint over those columns.
-# MAGIC 3. Compute the same fingerprint over the matching Bronze columns (after applying
-# MAGIC    the same cast/transform expressions the pipeline uses).
-# MAGIC 4. `left_anti` join Silver fingerprints onto Bronze fingerprints.
-# MAGIC 5. Assert the result is empty -- every Silver fingerprint exists in Bronze.
-# MAGIC
-# MAGIC A non-empty result means a Silver row was **invented** -- its data does not
-# MAGIC match any Bronze row after applying the same transformation.
-# MAGIC
 
 # COMMAND ----------
 
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r3_every_silver_row_traces_to_bronze(spark, entry):
-    """
-    R3 -- Reverse subset: every Silver row must be traceable to a Bronze row.
-
-    This test answers: "Is Silver a proper subset of Bronze?"
-    While R2 checks PKs only, R3 checks actual row data using SHA-256 fingerprints.
-
-    Steps:
-      1. Read Silver and select the r3 columns (PK + key data cols).
-      2. Read Bronze and apply the SAME transform expressions the pipeline uses
-         to produce equivalent Silver-format columns.
-      3. Compute SHA-256 fingerprint over those columns for both Silver and Bronze.
-      4. left_anti: Silver fingerprints NOT IN Bronze fingerprints.
-      5. Assert empty -- every Silver row has a matching Bronze origin.
-
-    Columns used per table (must mirror pipeline transforms):
-      listings_silver_merged : listing_id, brand, model
-         Bronze: id->listing_id(_id_main), marka->brand(_std), model->model(_std)
-      car_catalog            : brand, model
-         Bronze: Marka->brand(_clean), Model->model(_clean)
-      listings_text          : listing_id
-         Bronze: id->listing_id(_id_dbl)
-      listings_photo         : listing_id, photo_url_clean
-         Bronze: id->listing_id(_id_dbl), photo_url->photo_url_clean(_std)
-      geography              : city_name, city_prepositional
-         Bronze: name_padesh->city_name(_geo), greate_padesh->city_prepositional(_pass)
-    """
+    
     r3_exprs = entry.get("r3_bronze_exprs", [])
     if not r3_exprs:
         pytest.skip(f"[{entry['name']}] No r3_bronze_exprs defined -- skipping.")
