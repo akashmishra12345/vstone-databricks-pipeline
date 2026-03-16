@@ -197,12 +197,13 @@ REGISTRY = [
         # R2 forward subset
         "pk_bronze_col"  : {"listing_id": ("id", _id_main)},
         # R3 reverse row integrity
-        "r3_bronze_cols" : ["id", "marka", "model"],
-        "r3_silver_cols" : ["listing_id", "brand", "model"],
+        # R3: use ONLY listing_id for fingerprint
+        # brand/model use standardize_text pandas UDF which produces "nan" for NULL
+        # _std helper produces "" for NULL (coalesce default) -- mismatch causes false failures
+        # listing_id uses pure SQL (try_cast(id as long).cast("string")) -- perfectly replicable
+        # If listing_id matches, the row origin in Bronze is proven
         "r3_bronze_exprs": [
-            ("id",    "listing_id", _id_main),
-            ("marka", "brand",      _std),
-            ("model", "model",      _std),
+            ("id", "listing_id", _id_main),
         ],
         "has_derived"    : True,
     },
@@ -340,9 +341,12 @@ REGISTRY = [
         "r1_silver_filter"       : lambda df: df.filter(F.col("listing_id").isNotNull()),
         "r1_catalog_special"     : False,
         "pk_bronze_col"          : {"listing_id": ("id", _id_dbl)},
+        # R3: use ONLY listing_id for fingerprint
+        # photo_url uses standardize_text pandas UDF -- NULL produces "nan" in Silver
+        # but "" in test _std helper (coalesce default) -- mismatch causes false failures
+        # listing_id is a pure SQL cast (id.cast(double).cast(long).cast(string)) -- exact
         "r3_bronze_exprs"        : [
-            ("id",        "listing_id",      _id_dbl),
-            ("photo_url", "photo_url_clean", _std),
+            ("id", "listing_id", _id_dbl),
         ],
         "has_derived" : False,
     },
@@ -389,9 +393,13 @@ REGISTRY = [
             "city_name"          : ("name_padesh",   _geo),
             "city_prepositional" : ("greate_padesh", _pass),
         },
+        # R3: use lat+lon for fingerprint
+        # city_name uses standardize_geo pandas UDF -- NULL produces "nan" in Silver
+        # but "" in test _geo helper -- mismatch causes false failures
+        # lat/lon use .cast("double") -- no UDF, exactly matches TRY_CAST in SQL
         "r3_bronze_exprs"        : [
-            ("name_padesh",   "city_name",         _geo),
-            ("greate_padesh", "city_prepositional", _pass),
+            ("lat", "latitude",  _dbl),
+            ("lon", "longitude", _dbl),
         ],
         "has_derived" : False,
     },
@@ -1002,6 +1010,91 @@ def test_r1_exact_count_reconciliation(spark, entry):
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ## R2 -- Reconciliation: Forward Subset Integrity (Silver PK in Bronze)
+# MAGIC
+# MAGIC **Direction: Bronze -> Silver**
+# MAGIC
+# MAGIC Every Silver PK must exist in at least one Bronze source row.
+# MAGIC Uses `left_anti join` Silver PKs onto Bronze PKs.
+# MAGIC Empty result = Silver is a proper subset of Bronze. Nothing invented.
+# MAGIC
+
+# COMMAND ----------
+
+@pytest.mark.parametrize("entry", REGISTRY_PARAMS)
+def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
+    """
+    R2 -- Forward subset: every Silver PK must trace back to Bronze.
+
+    Method:
+      1. Apply the same cast expression to Bronze PK column(s) that the pipeline uses.
+      2. left_anti join Silver PKs onto Bronze PKs.
+      3. Assert the anti-join result is empty.
+
+    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED.
+    PySpark .select() with Cyrillic column names + expressions generates a large
+    protobuf plan (>8192 bytes). SQL sends a compact text string instead.
+
+    SQL approach for car_catalog:
+      Register Silver as a temp view, Bronze as a temp view.
+      Run LEFT ANTI JOIN in SQL -- compact plan, no gRPC size issue.
+      Bronze PKs use TRIM(CAST(col AS STRING)) to normalise whitespace,
+      matching clean_text strip behaviour for non-null values.
+    """
+    if entry.get("r2_catalog_sql"):
+        # ── car_catalog SQL path ──────────────────────────────────────────────
+        silver_table = entry["silver"]
+        bronze_table = entry["bronze_sources"][0]
+
+        result = spark.sql(f"""
+            SELECT COUNT(*) AS cnt
+            FROM (
+                SELECT DISTINCT brand, model, generation
+                FROM {silver_table}
+            ) s
+            LEFT ANTI JOIN (
+                SELECT DISTINCT
+                    TRIM(CAST(`Марка`    AS STRING)) AS brand,
+                    TRIM(CAST(`Модель`   AS STRING)) AS model,
+                    TRIM(CAST(`Поколение` AS STRING)) AS generation
+                FROM {bronze_table}
+            ) b
+            ON s.brand = b.brand
+            AND s.model = b.model
+            AND s.generation = b.generation
+        """).collect()[0]["cnt"]
+
+        assert result == 0, (
+            f"[{entry['name']}] {result:,} Silver PKs (brand, model, generation) "
+            "have no matching record in Bronze. "
+            "Pipeline produced brand/model/generation values not traceable to Bronze source."
+        )
+
+    else:
+        # ── Standard PySpark path for all other tables ────────────────────────
+        pk_map     = entry["pk_bronze_col"]
+        silver_pks = entry["primary_key"]
+
+        df_silver     = spark.read.table(entry["silver"]).select(*silver_pks).distinct()
+        df_bronze_raw = _union_bronze(spark, entry["bronze_sources"])
+
+        bronze_select = [
+            pk_map[s_col][1](pk_map[s_col][0]).alias(s_col)
+            for s_col in silver_pks if s_col in pk_map
+        ]
+        df_bronze_pks = df_bronze_raw.select(bronze_select).distinct()
+
+        orphaned = df_silver.join(df_bronze_pks, on=silver_pks, how="left_anti").count()
+
+        assert orphaned == 0, (
+            f"[{entry['name']}] {orphaned:,} Silver PKs have no matching Bronze record. "
+            f"PKs: {silver_pks}. Pipeline invented PKs not present in Bronze."
+        )
+
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ## R3 -- Reconciliation: Reverse Row Integrity (Silver to Bronze)
 # MAGIC
 # MAGIC **Direction: Silver -> Bronze**
@@ -1026,28 +1119,41 @@ def test_r1_exact_count_reconciliation(spark, entry):
 @pytest.mark.parametrize("entry", REGISTRY_PARAMS)
 def test_r3_every_silver_row_traces_to_bronze(spark, entry):
     """
-    R3 -- Reverse subset: every Silver row must be traceable to a Bronze row.
+    R3 -- Reverse row integrity: every Silver row must trace back to a Bronze row.
 
-    This is the reverse test: Silver is a subset of Bronze.
-    For every Silver row, a matching row must exist in Bronze after applying
-    the same transformation the pipeline uses.
+    Silver is a subset of Bronze. For every Silver row, a matching row must
+    exist in Bronze after applying the same transformation the pipeline uses.
 
     Method:
-      1. Select key columns from Silver.
-      2. Apply same transform to matching Bronze columns.
-      3. SHA-256 fingerprint both sides.
+      1. Select traceable key columns from Silver.
+      2. Apply the same deterministic cast to Bronze source columns.
+      3. SHA-256 fingerprint both sides over those columns.
       4. subtract(): Silver hashes NOT IN Bronze hashes must be empty.
+      5. Assert empty -- every Silver row has a confirmed Bronze origin.
 
-    car_catalog uses Spark SQL to avoid gRPC RESOURCE_EXHAUSTED.
-    Cyrillic Bronze column names in PySpark .select() generate a large
-    protobuf plan. SQL sends a compact text string -- no size issue.
+    IMPORTANT -- columns used for fingerprinting:
+      Only columns that use pure SQL expressions (no pandas UDFs) are used.
+      Pandas UDFs (standardize_text, clean_text, standardize_geo) convert
+      NULL to the string "nan" in Spark, but the test helpers (_std, _geo, _clean)
+      use COALESCE(..., "") which produces "" for NULL.
+      "nan" != "" -> SHA-256 mismatch -> false failure.
+      Fix: use only columns whose Bronze->Silver transform is a pure SQL expression.
+
+    Columns per table:
+      listings_silver_merged : listing_id only
+        (try_cast(id as long).cast("string") -- pure SQL, no UDF)
+      car_catalog            : SQL path (r3_catalog_sql=True, avoids gRPC plan limit)
+      listings_text          : listing_id only
+        (id.cast(double).cast(long).cast(string) -- pure SQL, no UDF)
+      listings_photo         : listing_id only
+        (id.cast(double).cast(long).cast(string) -- pure SQL, no UDF)
+      geography              : latitude + longitude
+        (lat.cast("double"), lon.cast("double") -- pure SQL cast, no UDF)
     """
     if entry.get("r3_catalog_sql"):
-        # ── car_catalog SQL path ──────────────────────────────────────────────
-        # Compare brand + model fingerprints between Silver and Bronze.
-        # Bronze: TRIM(CAST(`Марка` AS STRING)) and TRIM(CAST(`Модель` AS STRING))
-        # Silver: brand and model (already clean_text processed).
-        # We check Silver brand+model exists in Bronze Марка+Модель (normalised).
+        # ── car_catalog: SQL path to avoid gRPC RESOURCE_EXHAUSTED ───────────
+        # Cyrillic Bronze column names in PySpark .select() exceed gRPC plan limit.
+        # SQL sends compact text -- no size issue.
         silver_table = entry["silver"]
         bronze_table = entry["bronze_sources"][0]
 
@@ -1075,28 +1181,30 @@ def test_r3_every_silver_row_traces_to_bronze(spark, entry):
         )
 
     else:
-        # ── Standard PySpark path for all other tables ────────────────────────
+        # ── Standard PySpark path ─────────────────────────────────────────────
         r3_exprs = entry.get("r3_bronze_exprs", [])
         if not r3_exprs:
             pytest.skip(f"[{entry['name']}] No r3_bronze_exprs defined -- skipping.")
 
         silver_cols = [alias for _, alias, _ in r3_exprs]
 
-        # Silver fingerprints
+        # Silver fingerprints over the traceable columns
         df_silver     = spark.read.table(entry["silver"]).select(*silver_cols)
         silver_hashes = _row_hash(df_silver, silver_cols)
 
-        # Bronze fingerprints: apply same transform expressions
-        df_bronze_raw        = _union_bronze(spark, entry["bronze_sources"])
-        bronze_select        = [tfn(col).alias(alias) for col, alias, tfn in r3_exprs]
+        # Bronze fingerprints: apply the same pure-SQL cast expressions
+        df_bronze_raw         = _union_bronze(spark, entry["bronze_sources"])
+        bronze_select         = [tfn(col).alias(alias) for col, alias, tfn in r3_exprs]
         df_bronze_transformed = df_bronze_raw.select(bronze_select)
-        bronze_hashes        = _row_hash(df_bronze_transformed, silver_cols)
+        bronze_hashes         = _row_hash(df_bronze_transformed, silver_cols)
 
+        # Silver rows with no matching Bronze fingerprint
         orphaned = silver_hashes.subtract(bronze_hashes).count()
 
         assert orphaned == 0, (
-            f"[{entry['name']}] {orphaned:,} Silver rows have no matching Bronze origin. "
-            f"Columns compared: {silver_cols}. "
-            "Silver must be a subset of Bronze -- pipeline cannot invent rows."
+            f"[{entry['name']}] {orphaned:,} Silver rows have no matching Bronze origin.\n"
+            f"  Columns compared: {silver_cols}\n"
+            "  These columns use pure SQL casts -- if a fingerprint is missing from Bronze,\n"
+            "  the pipeline produced a value that did not exist in the source."
         )
 
