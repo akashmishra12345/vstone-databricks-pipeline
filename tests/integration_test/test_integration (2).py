@@ -109,12 +109,17 @@ def test_it1_every_valid_bronze_listing_reaches_gold(spark):
         df_bronze = df_bronze.unionByName(df, allowMissingColumns=True)
 
     # Step 2: apply the same transforms as _transform_listings
+    # NOTE: use try_to_timestamp (not to_timestamp) in the test.
+    # Silver uses F.to_timestamp inside DLT streaming -- Spark's streaming engine
+    # coerces unparseable dates to NULL silently.
+    # In batch test context, F.to_timestamp throws CANNOT_PARSE_TIMESTAMP on bad input.
+    # try_to_timestamp mirrors the Silver behaviour: bad date -> NULL -> filtered out.
     df_transformed = df_bronze.select(
         F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
         F.expr("try_cast(regexp_replace(cost, '[^0-9.]', '') as double)").alias("price_rub"),
         F.coalesce(
-            F.to_timestamp(F.col("date"), "dd.MM.yyyy"),
-            F.to_timestamp(F.col("date"), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+            F.expr("try_to_timestamp(date, 'dd.MM.yyyy')"),
+            F.expr("try_to_timestamp(date, 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'')"),
         ).alias("listing_date"),
     )
 
