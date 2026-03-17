@@ -1,6 +1,19 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 10 -- Gold Layer DLT Pipeline
+# MAGIC
+# MAGIC Kimball star schema built from Silver tables.
+# MAGIC
+# MAGIC | Table | Type | PK | Source |
+# MAGIC |-------|------|----|--------|
+# MAGIC | `dim_date` | Static | `date_key` DATE | Generated 2010-2030 |
+# MAGIC | `dim_price_category` | Static lookup | `price_category_key` INT | Hardcoded 5 bands |
+# MAGIC | `dim_steering` | Static lookup | `steering_key` INT | `listings_silver_merged.steering_wheel` |
+# MAGIC | `dim_car` | SCD2 | `car_sk` INT (CRC32) | `car_catalog_transformation` |
+# MAGIC | `dim_location` | SCD2 | `location_sk` INT (CRC32) | `geography_transformation` |
+# MAGIC | `dim_listing_details` | SCD2 | `listing_id` STRING | `listings_text_transformation` |
+# MAGIC | `dim_listing_photos` | SCD2 | `listing_id+photo_url_clean` | `listings_photo_transformation` |
+# MAGIC | `fact_listings` | Fact | `listing_id` STRING (degenerate dim) | `listings_silver_merged` + joins |
 
 # COMMAND ----------
 
@@ -138,6 +151,9 @@ def dim_steering():
 # MAGIC ## `dim_car` -- SCD Type 2
 # MAGIC
 # MAGIC Source: `car_catalog_transformation`
+# MAGIC
+# MAGIC Surrogate key `car_sk` = `crc32(lower(brand)|lower(model))` cast to INT.
+# MAGIC Stable and reproducible -- same brand+model always yields the same INT.
 
 # COMMAND ----------
 
@@ -305,7 +321,7 @@ dlt.apply_changes(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## `fact_listings` -- Kimball Fact Table
+# MAGIC ## `fact_listings` --  Fact Table
 # MAGIC
 
 # COMMAND ----------
@@ -349,7 +365,8 @@ def fact_listings():
         .agg(F.count("photo_url_clean").alias("photo_count"))
     )
 
-    # ── word_count: metric from Silver text table 
+    # ── word_count: metric from Silver text table (Vasu: metrics belong in fact)
+   
     word_counts = (
         spark.table(f"{SILVER}.listings_text_transformation")
         .filter(F.col("listing_id").isNotNull())
@@ -366,7 +383,8 @@ def fact_listings():
         dlt.read("dim_price_category")
         .select("price_category", "price_category_key")
     )
-
+    # steering_key: Silver produces STRING steering_wheel (lower+stripped).
+    
     steer_map = (
         dlt.read("dim_steering")
         .select("steering_wheel", "steering_key")
@@ -404,11 +422,11 @@ def fact_listings():
             "listing_date",                         # DATE
 
             # ── FK -> dim_car.car_sk (INT surrogate key) ─────────────────────
-            
+            # Replaces brand and model strings in fact. brand/model stay in dim_car.
             F.col("car_sk"),                        # INT
 
             # ── FK -> dim_location.location_sk (INT surrogate key) ────────────
-            
+            # Replaces city_prepositional string in fact. City stays in dim_location.
             F.col("location_sk"),                   # INT
 
             # ── FK -> dim_price_category.price_category_key (INT) ─────────────
@@ -417,18 +435,18 @@ def fact_listings():
             # ── FK -> dim_steering.steering_key (INT) ─────────────────────────
             F.col("steering_key"),                  # INT
 
-            # ── Numeric listing attributes  ───
+            # ── Numeric listing attributes (Silver-produced types, no cast) ───
             "manufacture_year",                     # INT 
-            "engine_power",                         # INT 
-            "mileage_km",                           # INT 
-            "has_license",                          # INT 
-            "listing_year",                         # INT 
-            "listing_month",                        # INT 
+            "engine_power",                         # INT
+            "mileage_km",                           # INT
+            "has_license",                          # INT
+            "listing_year",                         # INT
+            "listing_month",                        # INT
             "car_age_years",                        # INT 
 
             # ── Financial measures ────────────────────────────────────────────
-            "price_rub",                            # DOUBLE
-            "price_usd",                            # DOUBLE
+            "price_rub",                            # DOUBLE 
+            "price_usd",                            # DOUBLE 
 
             # ── Gold-derived measures ─────────────────────────────────────────
             (F.year("listing_date") - F.col("manufacture_year"))
@@ -444,10 +462,10 @@ def fact_listings():
 
             # ── Denormalized count metrics ─────────────────────────────────────
             F.col("photo_count").cast("int"),       # INT (joined from photo table)
-            F.col("word_count").cast("int"),        # INT
+            F.col("word_count").cast("int"),        # INT (Vasu: metric belongs in fact)
 
-            # ── RGB colour codes (INT from Silver, no cast in Gold) ────────────
-            
+            # ── RGB colour codes ────────────
+         
             "color_r",                              # INT
             "color_g",                              # INT
             "color_b",                              # INT
@@ -493,6 +511,7 @@ def agg_monthly_trend():
         fact
         .join(dim_car,   on="car_sk",            how="left")
         .join(price_cat, on="price_category_key", how="left")
+        .filter(F.col("brand").isNotNull())       
         .withColumn("month_year", F.date_format("listing_date", "yyyy-MM"))
         .groupBy("month_year", "brand", "price_category")
         .agg(
@@ -533,6 +552,7 @@ def agg_brand_performance():
         fact
         .join(dim_car, on="car_sk",      how="left")
         .join(dim_loc, on="location_sk", how="left")
+        .filter(F.col("brand").isNotNull())      
         .groupBy("brand", "city_name")
         .agg(
             F.count("listing_id").alias("listing_count"),
@@ -606,6 +626,7 @@ def agg_kpi_cube():
         fact
         .join(dim_car,   on="car_sk",            how="left")
         .join(price_dim, on="price_category_key", how="left")
+        .filter(F.col("brand").isNotNull())       
         .groupBy("brand", "model", "manufacture_year", "price_category", "fuel_type", "is_high_mileage")
         .agg(
             F.count("listing_id").alias("listing_volume"),
@@ -636,6 +657,7 @@ def agg_top_10_brands():
     return (
         fact
         .join(dim_car, on="car_sk", how="left")
+        .filter(F.col("brand").isNotNull())       
         .groupBy("brand")
         .agg(
             F.round(F.sum("price_usd"), 0).alias("total_market_value_usd"),
