@@ -64,12 +64,25 @@ def _bronze_listings(spark):
 
 # ── Shared helper: apply Silver _transform_listings to Bronze ─────────────────
 def _transform_bronze(df):
+    """
+    Apply the same transforms as Silver _transform_listings to Bronze data.
+
+    Key difference from the pipeline:
+      Pipeline uses F.to_timestamp() inside DLT streaming -- Spark streaming
+      silently returns NULL for unparseable dates.
+      Tests run in batch context where F.to_timestamp() throws CANNOT_PARSE_TIMESTAMP.
+      Fix: use try_to_timestamp() which always returns NULL on bad input (never throws).
+    """
     return df.select(
         F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
         F.expr("try_cast(regexp_replace(cost, '[^0-9.]', '') as double)").alias("price_rub"),
         F.coalesce(
             # Russian date format: 15.03.2023
             F.expr("try_to_timestamp(date, 'dd.MM.yyyy')"),
+            # ISO 8601: 2023-03-15T10:00:00Z
+            # F.to_timestamp() with no format auto-detects ISO 8601 -- safe for batch context
+            # when wrapped in try_ equivalent. Using regexp_replace to strip the Z
+            # and then parsing as standard timestamp avoids embedded quote issues.
             F.to_timestamp(
                 F.regexp_replace(F.col("date"), "Z$", ""),
                 "yyyy-MM-dd'T'HH:mm:ss"
@@ -97,7 +110,12 @@ def _valid_filter(df):
 # COMMAND ----------
 
 def test_it1_every_valid_bronze_listing_reaches_gold(spark):
-    
+    """
+    IT1 -- Every Bronze listing_id that passes Silver _LISTINGS_VALID_FILTER
+    must exist in fact_listings. Checked in both directions:
+      - No valid Bronze row dropped (Bronze -> Gold)
+      - No Gold row invented     (Gold -> Bronze)
+    """
     valid_bronze_ids = (
         _valid_filter(_transform_bronze(_bronze_listings(spark)))
         .select("listing_id")
@@ -126,6 +144,10 @@ def test_it1_every_valid_bronze_listing_reaches_gold(spark):
 # COMMAND ----------
 
 def test_it2_bronze_source_file_traceable_to_bronze(spark):
+    """
+    IT2 -- Every bronze_source_file in fact_listings must exist in Bronze.
+    Proves the audit trail was not fabricated at any layer.
+    """
     bronze_files = (
         _bronze_listings(spark)
         .select(F.col("source_file").alias("bronze_source_file"))
@@ -145,6 +167,11 @@ def test_it2_bronze_source_file_traceable_to_bronze(spark):
 
 
 def test_it2_audit_timestamps_ordered(spark):
+    """
+    IT2 -- Audit timestamps must be chronologically ordered:
+    bronze_load_dt <= silver_load_dt <= gold_load_dt.
+    A reversed order means a layer was written before its source.
+    """
     df = spark.read.table(G("fact_listings"))
 
     silver_before_bronze = df.filter(
@@ -177,6 +204,13 @@ def test_it2_audit_timestamps_ordered(spark):
 # COMMAND ----------
 
 def test_it3_row_counts_consistent_across_all_layers(spark):
+    """
+    IT3 -- Row count relationship across all three layers:
+      Bronze raw total  >=  Silver count  ==  Gold fact count
+
+    Bronze >= Silver: Silver deduplicates on listing_id and filters invalid rows.
+    Silver == Gold:   Gold applies NO further deduplication -- 1:1 mapping.
+    """
     bronze_total = sum(
         spark.read.table(B(t)).count() for t in LISTING_BRONZE_TABLES
     )
@@ -204,10 +238,22 @@ def test_it3_row_counts_consistent_across_all_layers(spark):
 
 # MAGIC %md
 # MAGIC ## IT4 — Full Reconstruction: JOIN fact + dims → Silver
+# MAGIC
+# MAGIC *Vasu's exact requirement: "Join Fact + Dims → get the original Silver table back."*
 
 # COMMAND ----------
 
 def test_it4_fact_plus_dims_reconstructs_silver(spark):
+    """
+    IT4 -- Joining fact_listings + dim_price_category + dim_steering
+    must perfectly reconstruct listings_silver_merged. Both directions:
+      - No Silver row lost in reconstruction
+      - No extra row invented by the reconstruction
+
+    Proves the integer FK encoding is lossless and reversible:
+      price_category_key -> dim_price_category -> price_category STRING
+      steering_key       -> dim_steering       -> steering_wheel  STRING
+    """
     fact      = spark.read.table(G("fact_listings"))
     dim_price = spark.read.table(G("dim_price_category")).select("price_category_key", "price_category")
     dim_steer = spark.read.table(G("dim_steering")).select("steering_key", "steering_wheel")
@@ -259,29 +305,58 @@ def test_it4_fact_plus_dims_reconstructs_silver(spark):
 # COMMAND ----------
 
 def test_it5_price_rub_correct_end_to_end(spark):
-    bronze_prices = (
+    """
+    IT5 -- Every fact_listings price_rub must be traceable to a Bronze cost value.
+
+    WHY subtract() with dropDuplicates fails:
+      The same listing_id can appear in multiple Bronze tables with different
+      cost values (e.g. "450000" in CSV vs "450 000.00" in JSON).
+      Silver deduplicate(df, ["listing_id"]) picks one row non-deterministically.
+      The test's dropDuplicates() picks a DIFFERENT arbitrary row at test time.
+      Same listing_id, different cost row -> different price_rub -> false failure.
+
+    CORRECT approach: check that each Gold price_rub EXISTS in ANY Bronze row
+    for that listing_id (before dedup). If the price came from any Bronze source
+    with that listing_id, it is valid -- the pipeline just picked a different
+    duplicate than the test would have.
+    """
+    # All Bronze (listing_id, price_rub) pairs -- NO dropDuplicates
+    # We want ALL possible valid price_rub values per listing_id
+    bronze_all_prices = (
         _bronze_listings(spark)
         .select(
             F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
             F.expr("try_cast(regexp_replace(cost, '[^0-9.]', '') as double)").alias("price_rub"),
         )
         .filter(F.col("listing_id").isNotNull() & F.col("price_rub").isNotNull())
-        .dropDuplicates(["listing_id"])
     )
+
     gold_prices = (
         spark.read.table(G("fact_listings"))
         .select("listing_id", "price_rub")
         .filter(F.col("price_rub").isNotNull())
     )
-    mismatched = gold_prices.subtract(bronze_prices).count()
+
+    # Every Gold (listing_id, price_rub) pair must exist in Bronze
+    # left_anti: Gold rows with no matching (listing_id, price_rub) in any Bronze row
+    mismatched = gold_prices.join(
+        bronze_all_prices,
+        on=["listing_id", "price_rub"],
+        how="left_anti"
+    ).count()
+
     assert mismatched == 0, (
-        f"{mismatched:,} rows where fact price_rub does not match "
-        "the Bronze cost after applying the same transform. "
-        "Financial measure corrupted during Bronze -> Silver -> Gold."
+        f"{mismatched:,} Gold price_rub values cannot be traced to any Bronze cost value.\n"
+        "Each Gold price_rub must match try_cast(regexp_replace(cost,'[^0-9.]','') as double)\n"
+        "for at least one Bronze row with the same listing_id."
     )
 
 
 def test_it5_price_usd_correct_end_to_end(spark):
+    """
+    IT5 -- price_usd must equal round(price_rub / 82.5, 2) in every fact row.
+    USD_RATE = 82.5 (Feb 2023) -- exact value from Silver _transform_listings.
+    """
     bad = spark.read.table(G("fact_listings")).filter(
         F.col("price_rub").isNotNull() &
         F.col("price_usd").isNotNull() &
@@ -296,10 +371,20 @@ def test_it5_price_usd_correct_end_to_end(spark):
 
 # MAGIC %md
 # MAGIC ## IT6 — Aggregate Consistency: Gold dims ↔ Gold aggs
+# MAGIC
+# MAGIC Every `brand` and `city_name` in aggregate tables must trace back to active dim rows.
+# MAGIC
+# MAGIC > **Note:** `fact_listings` has **no `brand` column** — strings were removed per Vasu's rule.
+# MAGIC > Brand is resolved via `car_sk → dim_car.brand`. Any test reading `brand` directly
+# MAGIC > from `fact_listings` will crash with `UNRESOLVED_COLUMN`.
 
 # COMMAND ----------
 
 def test_it6_agg_brands_exist_in_dim_car(spark):
+    """
+    IT6 -- Every brand in aggregate tables must exist in dim_car (active rows).
+    Aggregates are built by joining fact + dim_car on car_sk -- all brands come from dim_car.
+    """
     dim_brands = (
         spark.read.table(G("dim_car"))
         .filter(F.col("__END_AT").isNull())
@@ -322,6 +407,11 @@ def test_it6_agg_brands_exist_in_dim_car(spark):
 
 
 def test_it6_agg_cities_exist_in_dim_location(spark):
+    """
+    IT6 -- Every non-null city_name in agg_brand_location_performance
+    must exist in dim_location (active rows).
+    Note: NULL city_name is allowed -- seller cities not in geo reference produce NULL.
+    """
     dim_cities = (
         spark.read.table(G("dim_location"))
         .filter(F.col("__END_AT").isNull())
@@ -341,6 +431,10 @@ def test_it6_agg_cities_exist_in_dim_location(spark):
 
 
 def test_it6_agg_top10_has_at_most_10_rows(spark):
+    """
+    IT6 -- agg_top_10_brands_by_spend must have at most 10 rows.
+    The pipeline uses .limit(10) -- if more than 10 rows exist, limit was not applied.
+    """
     cnt = spark.read.table(G("agg_top_10_brands_by_spend")).count()
     assert cnt <= 10, (
         f"agg_top_10_brands_by_spend has {cnt} rows -- expected at most 10. "
