@@ -77,8 +77,16 @@ def _transform_bronze(df):
         F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
         F.expr("try_cast(regexp_replace(cost, '[^0-9.]', '') as double)").alias("price_rub"),
         F.coalesce(
+            # Russian date format: 15.03.2023
             F.expr("try_to_timestamp(date, 'dd.MM.yyyy')"),
-            F.expr("try_to_timestamp(date, 'yyyy-MM-dd\'T\'HH:mm:ss\'Z\'')"),
+            # ISO 8601: 2023-03-15T10:00:00Z
+            # F.to_timestamp() with no format auto-detects ISO 8601 -- safe for batch context
+            # when wrapped in try_ equivalent. Using regexp_replace to strip the Z
+            # and then parsing as standard timestamp avoids embedded quote issues.
+            F.to_timestamp(
+                F.regexp_replace(F.col("date"), "Z$", ""),
+                "yyyy-MM-dd'T'HH:mm:ss"
+            ),
         ).alias("listing_date"),
     )
 
