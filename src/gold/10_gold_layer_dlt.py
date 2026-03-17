@@ -177,6 +177,9 @@ dlt.apply_changes(
     keys               = ["brand", "model"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
+    tracked_columns    = ["brand", "model", "generation",
+                          "trim_level", "fuel_type",
+                          "transmission", "drive_type"],
 )
 
 # COMMAND ----------
@@ -219,6 +222,8 @@ dlt.apply_changes(
     keys               = ["city_prepositional"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
+    tracked_columns    = ["city_name", "city_prepositional",
+                          "latitude", "longitude"],
 )
 
 # COMMAND ----------
@@ -249,7 +254,7 @@ dlt.create_streaming_table(
     name             = "dim_listing_details",
     comment          = "Gold SCD2: Russian listing text descriptions from listings_text_transformation. "
                        "Natural PK: listing_id"
-                       "Change-detection: text_hash (MD5 of text) -- Vasu feedback: SCD2 requires "
+                       "Change-detection: text_hash (MD5 of text)  SCD2 requires "
                        "a change column; text_hash triggers a new version when description changes. "
                        "SCD2: __START_AT / __END_AT. Active rows: __END_AT IS NULL.",
     table_properties = {**GOLD_PROPS, "scd_type": "2", "pk": "listing_id"},
@@ -261,6 +266,7 @@ dlt.apply_changes(
     keys               = ["listing_id"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
+    tracked_columns    = ["text", "text_hash"],
 )
 
 # COMMAND ----------

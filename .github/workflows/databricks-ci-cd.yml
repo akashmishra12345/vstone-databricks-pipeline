@@ -104,19 +104,19 @@ jobs:
         run: pytest tests/integration_test -v --maxfail=1 --disable-warnings
 
   # # # 6. Deploy and Notify
-  deploy-and-run:
-    name: Deploy and Run Jobs
-    runs-on: ubuntu-latest
-    needs: run-integration-test
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
-      - name: Deploy Bundle
-        run: databricks bundle deploy --target dev
-      - name: Run Databricks Job
-        run: databricks bundle run end_to_end_pipeline --target dev
+  # deploy-and-run:
+  #   name: Deploy and Run Jobs
+  #   runs-on: ubuntu-latest
+  #   needs: run-integration-test
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #     - name: Install Databricks CLI
+  #       uses: databricks/setup-cli@main
+  #     - name: Deploy Bundle
+  #       run: databricks bundle deploy --target dev
+  #     - name: Run Databricks Job
+  #       run: databricks bundle run end_to_end_pipeline --target dev
 
       # # ========================================================================
       # # EMAIL NOTIFICATION (Using SMTP)
