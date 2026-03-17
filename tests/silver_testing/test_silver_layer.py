@@ -5,9 +5,9 @@
 # MAGIC | Type | Suite | Tests | What it proves |
 # MAGIC |------|-------|-------|----------------|
 # MAGIC | Unit | U1 - Existence | 3 | Every Silver/Quarantine table exists and is non-empty |
-# MAGIC | Unit | U2 - Schema & Types | 6 | Correct columns, correct types (INT for colors, STRING for listing_id) |
+# MAGIC | Unit | U2 - Schema & Types | 6 | Correct columns, correct types (eg. INT for colors) |
 # MAGIC | Unit | U3 - Audit Columns | 4 | bronze_load_dt, bronze_source_file, silver_load_dt: present, non-null, typed |
-# MAGIC | Unit | U4 - Filter Constraints | 3 | .filter() columns = zero NULLs; @dlt.expect warn columns < 50% null rate |
+# MAGIC | Unit | U4 - Filter Constraints | 3 | .filter() columns = zero NULLs |
 # MAGIC | Unit | U5 - Deduplication | 1 | No duplicate PKs (skipped for intentionally non-unique tables) |
 # MAGIC | Unit | U6 - Quarantine Hygiene | 3 | quarantine_reason + quarantine_dt non-null, Silver and Quarantine disjoint |
 # MAGIC | Unit | U7 - Derived Columns | 12 | price_usd, car_age_years, price_category, brand_std, colors 0-255, fuel lowercase |
@@ -192,8 +192,8 @@ REGISTRY = [
         "r1_quar_from_same_dedup": False,
         "r1_silver_filter"       : lambda df: df.filter(F.col("brand").isNotNull()),
         "r1_catalog_special"     : True,
-        "r2_catalog_sql"         : True,   # use SQL to avoid gRPC RESOURCE_EXHAUSTED
-        "r3_catalog_sql"         : True,   # use SQL to avoid gRPC RESOURCE_EXHAUSTED
+        "r2_catalog_sql"         : True,   
+        "r3_catalog_sql"         : True,   
         "r1_bronze_cyrillic_map" : {
             "Marka":         "Marka",
             "Model":         "Model",
@@ -275,10 +275,6 @@ REGISTRY = [
         "r1_silver_filter"       : lambda df: df.filter(F.col("listing_id").isNotNull()),
         "r1_catalog_special"     : False,
         "pk_bronze_col"          : {"listing_id": ("id", _id_dbl)},
-        # R3: use ONLY listing_id for fingerprint
-        # photo_url uses standardize_text pandas UDF -- NULL produces "nan" in Silver
-        # but "" in test _std helper (coalesce default) -- mismatch causes false failures
-        # listing_id is a pure SQL cast (id.cast(double).cast(long).cast(string)) -- exact
         "r3_bronze_exprs"        : [
             ("id", "listing_id", _id_dbl),
         ],

@@ -22,12 +22,11 @@
         "SELECT \r\n",
         "  month_year,\r\n",
         "  brand,\r\n",
-        "  SUM(total_listings) AS total_listings,\r\n",
-        "  ROUND(AVG(avg_price_usd), 0) AS avg_price_usd\r\n",
+        "  ROUND(SUM(total_revenue_usd), 0) AS monthly_revenue_usd\r\n",
         "FROM vstone_catalog.gold.agg_monthly_sales_trend\r\n",
-        "WHERE brand IN (\r\n",
-        "  'toyota','bmw','honda','hyundai',\r\n",
-        "  'nissan','kia','mercedes-benz','lexus','mitsubishi','лада'\r\n",
+        "WHERE LOWER(brand) IN (\r\n",
+        "  'toyota', 'bmw', 'honda', 'hyundai',\r\n",
+        "  'nissan', 'kia', 'mercedes-benz', 'lexus', 'лада', 'volkswagen'\r\n",
         ")\r\n",
         "GROUP BY month_year, brand\r\n",
         "ORDER BY month_year"
@@ -42,11 +41,12 @@
         "SELECT \r\n",
         "  month_year,\r\n",
         "  brand,\r\n",
-        "  ROUND(SUM(total_revenue_usd), 0) AS monthly_revenue_usd\r\n",
+        "  SUM(total_listings)            AS total_listings,\r\n",
+        "  ROUND(AVG(avg_price_usd), 0)   AS avg_price_usd\r\n",
         "FROM vstone_catalog.gold.agg_monthly_sales_trend\r\n",
-        "WHERE brand IN (\r\n",
-        "  'toyota','bmw','honda','hyundai',\r\n",
-        "  'nissan','kia','mercedes-benz','lexus','mitsubishi','лада'\r\n",
+        "WHERE LOWER(brand) IN (\r\n",
+        "  'toyota', 'bmw', 'honda', 'hyundai',\r\n",
+        "  'nissan', 'kia', 'mercedes-benz', 'lexus', 'лада', 'volkswagen'\r\n",
         ")\r\n",
         "GROUP BY month_year, brand\r\n",
         "ORDER BY month_year"
@@ -162,8 +162,8 @@
                       "expression": "`month_year`"
                     },
                     {
-                      "name": "sum(total_listings)",
-                      "expression": "SUM(`total_listings`)"
+                      "name": "sum(monthly_revenue_usd)",
+                      "expression": "SUM(`monthly_revenue_usd`)"
                     }
                   ],
                   "disaggregated": false
@@ -220,7 +220,7 @@
                   }
                 ]
               },
-              "widgetType": "bar",
+              "widgetType": "line",
               "encodings": {
                 "x": {
                   "fieldName": "month_year",
@@ -229,7 +229,7 @@
                   }
                 },
                 "y": {
-                  "fieldName": "sum(total_listings)",
+                  "fieldName": "sum(monthly_revenue_usd)",
                   "scale": {
                     "type": "quantitative"
                   }
@@ -268,8 +268,8 @@
                       "expression": "`month_year`"
                     },
                     {
-                      "name": "sum(monthly_revenue_usd)",
-                      "expression": "SUM(`monthly_revenue_usd`)"
+                      "name": "sum(total_listings)",
+                      "expression": "SUM(`total_listings`)"
                     }
                   ],
                   "disaggregated": false
@@ -326,7 +326,7 @@
                   }
                 ]
               },
-              "widgetType": "area",
+              "widgetType": "bar",
               "encodings": {
                 "x": {
                   "fieldName": "month_year",
@@ -335,7 +335,7 @@
                   }
                 },
                 "y": {
-                  "fieldName": "sum(monthly_revenue_usd)",
+                  "fieldName": "sum(total_listings)",
                   "scale": {
                     "type": "quantitative"
                   }
@@ -343,7 +343,16 @@
                 "color": {
                   "fieldName": "brand",
                   "scale": {
-                    "type": "categorical"
+                    "type": "categorical",
+                    "mappings": [
+                      {
+                        "value": "Honda",
+                        "color": {
+                          "themeColorType": "visualizationColors",
+                          "position": 4
+                        }
+                      }
+                    ]
                   }
                 }
               }

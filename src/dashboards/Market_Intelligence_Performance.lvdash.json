@@ -67,12 +67,13 @@
       "displayName": "Top Cities by Inventory",
       "queryLines": [
         "SELECT\r\n",
-        "  location_key,\r\n",
+        "  city_name,\r\n",
         "  SUM(inventory_count)         AS total_inventory,\r\n",
         "  ROUND(AVG(avg_price_usd), 0) AS avg_price_usd,\r\n",
         "  COUNT(DISTINCT fuel_type)    AS fuel_types_available\r\n",
         "FROM vstone_catalog.gold.agg_regional_market_depth\r\n",
-        "GROUP BY location_key\r\n",
+        "WHERE city_name IS NOT NULL\r\n",
+        "GROUP BY city_name\r\n",
         "ORDER BY total_inventory DESC\r\n",
         "LIMIT 15"
       ],
@@ -84,18 +85,19 @@
       "displayName": "Fuel Type Distribution by City",
       "queryLines": [
         "SELECT\r\n",
-        "  location_key,\r\n",
+        "  city_name,\r\n",
         "  fuel_type,\r\n",
         "  SUM(inventory_count) AS inventory_count\r\n",
         "FROM vstone_catalog.gold.agg_regional_market_depth\r\n",
-        "WHERE location_key IN (\r\n",
-        "  SELECT location_key\r\n",
+        "WHERE city_name IN (\r\n",
+        "  SELECT city_name\r\n",
         "  FROM vstone_catalog.gold.agg_regional_market_depth\r\n",
-        "  GROUP BY location_key\r\n",
+        "  WHERE city_name IS NOT NULL\r\n",
+        "  GROUP BY city_name\r\n",
         "  ORDER BY SUM(inventory_count) DESC\r\n",
         "  LIMIT 10\r\n",
         ")\r\n",
-        "GROUP BY location_key, fuel_type\r\n",
+        "GROUP BY city_name, fuel_type\r\n",
         "ORDER BY inventory_count DESC"
       ],
       "catalog": "vstone_catalog",
@@ -408,12 +410,12 @@
                   "datasetName": "9c135555",
                   "fields": [
                     {
-                      "name": "location_key",
-                      "expression": "`location_key`"
-                    },
-                    {
                       "name": "sum(total_inventory)",
                       "expression": "SUM(`total_inventory`)"
+                    },
+                    {
+                      "name": "city_name",
+                      "expression": "`city_name`"
                     }
                   ],
                   "disaggregated": false
@@ -430,7 +432,7 @@
                 "colors": [
                   {
                     "themeColorType": "visualizationColors",
-                    "position": 6
+                    "position": 3
                   },
                   {
                     "themeColorType": "visualizationColors",
@@ -473,15 +475,15 @@
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "location_key",
-                  "scale": {
-                    "type": "categorical"
-                  }
-                },
-                "y": {
                   "fieldName": "sum(total_inventory)",
                   "scale": {
                     "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "city_name",
+                  "scale": {
+                    "type": "categorical"
                   }
                 }
               }
@@ -508,8 +510,8 @@
                       "expression": "`fuel_type`"
                     },
                     {
-                      "name": "location_key",
-                      "expression": "`location_key`"
+                      "name": "city_name",
+                      "expression": "`city_name`"
                     },
                     {
                       "name": "sum(inventory_count)",
@@ -526,10 +528,10 @@
                 "showTitle": true,
                 "title": "Fuel Type Mix by City (Top 10 Cities)"
               },
-              "widgetType": "area",
+              "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "location_key",
+                  "fieldName": "city_name",
                   "scale": {
                     "type": "categorical"
                   }

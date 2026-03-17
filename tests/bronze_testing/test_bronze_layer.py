@@ -71,18 +71,13 @@ def B(table: str) -> str:
 REGISTRY = [
 
     # ── 03: CSV / COPY INTO ────────────────────────────────────────────────────
-    # Pipeline : 03_bronze_csv_copyinto.py
-    # Method   : COPY INTO (SQL), force=false — file-tracked, idempotent
-    # Null-id  : Step 4 DELETE FROM WHERE id IS NULL (permanent purge)
-    # Repair   : Step 5 anti-join on id + append any missing valid rows
-    # Schema   : CREATE TABLE DDL — 19 STRING + load_dt TIMESTAMP + source_file STRING
     {
         "name"             : "Chunk 1 — CSV / COPY INTO",
         "src"              : f"{CHUNKS_PATH}/1_main_chunk_1.csv",
         "table"            : "listings_csv_copyinto",
         "fmt"              : "csv",
         "opts"             : {"header": "true"},
-        "null_exclude_col" : "id",          # pipeline DELETEs null-id rows — mirror this
+        "null_exclude_col" : "id",          
         "has_id"           : True,
         "source_file_value": "1_main_chunk_1.csv",
         "expected_cols"    : [
@@ -90,23 +85,18 @@ REGISTRY = [
             "id","engine","power","gear","probeg","sWheel","complectation",
             "transmission","R","G","B",
         ],
-        "id_null_guaranteed_zero": True,    # U3: pipeline deletes null-id rows
+        "id_null_guaranteed_zero": True,   
         "idempotency_note" : "COPY INTO force=false (file-tracked)",
     },
 
     # ── 06: CSV / DLT Auto Loader ──────────────────────────────────────────────
-    # Pipeline : 06_bronze_dlt.py
-    # Method   : DLT cloudFiles CSV, pathGlobFilter=1_main_chunk_2.csv
-    # Null-id  : @dlt.expect('valid_id','id IS NOT NULL') — WARN ONLY, rows kept
-    # Null-cost: @dlt.expect('valid_cost','cost IS NOT NULL') — WARN ONLY, rows kept
-    # Schema   : StructType — 19 STRING + audit cols
     {
         "name"             : "Chunk 2 — CSV / DLT Auto Loader",
         "src"              : f"{CHUNKS_PATH}/1_main_chunk_2.csv",
         "table"            : "listings_csv_dlt",
         "fmt"              : "csv",
         "opts"             : {"header": "true"},
-        "null_exclude_col" : None,          # DLT expect is warn-only — rows NOT dropped
+        "null_exclude_col" : None,          
         "has_id"           : True,
         "source_file_value": "1_main_chunk_2.csv",
         "expected_cols"    : [
@@ -114,48 +104,37 @@ REGISTRY = [
             "id","engine","power","gear","probeg","sWheel","complectation",
             "transmission","R","G","B",
         ],
-        "id_null_guaranteed_zero": False,   # @dlt.expect is warn-only — nulls MAY be present
+        "id_null_guaranteed_zero": False,   
         "idempotency_note" : "DLT checkpoint-managed",
     },
 
     # ── 04: JSON / Auto Loader foreachBatch MERGE ──────────────────────────────
-    # Pipeline : 04_bronze_auto_loader.py
-    # Method   : cloudFiles JSON, foreachBatch MERGE on id (whenNotMatchedInsertAll)
-    # Null-id  : filter(id IS NOT NULL) inside foreachBatch — rows never reach MERGE
-    # Keys     : may need positional rename if JSON keys mismatch DDL (broken keys case)
-    # _rescued : dropped in foreachBatch if Auto Loader added it
-    # source_file: _metadata.file_path (full volume path, not a bare filename)
     {
         "name"             : "Chunk 3 — JSON / Auto Loader MERGE",
         "src"              : f"{CHUNKS_PATH}/1_main_chunk_3.json",
         "table"            : "listings_json_autoloader",
         "fmt"              : "json",
         "opts"             : {"multiLine": "true"},
-        "null_exclude_col" : "id",          # foreachBatch drops null-id before MERGE
+        "null_exclude_col" : "id",          
         "has_id"           : True,
-        "source_file_value": "1_main_chunk_3.json",  # present inside _metadata.file_path
+        "source_file_value": "1_main_chunk_3.json",  
         "expected_cols"    : [
             "cost","currency","marka","model","year","has_license","place","date",
             "id","engine","power","gear","probeg","sWheel","complectation",
             "transmission","R","G","B",
         ],
-        "id_null_guaranteed_zero": True,    # foreachBatch null guard
+        "id_null_guaranteed_zero": True,    
         "idempotency_note" : "MERGE on id — whenNotMatchedInsertAll (existing ids skipped)",
     },
 
     # ── 05: XML / PySpark native reader ───────────────────────────────────────
-    # Pipeline : 05_bronze_xml_pyspark.py
-    # Method   : spark.read.format("xml"), rowTag="record", explicit StructType
-    # Null-id  : filter(id IS NOT NULL) before write
-    # Idempotency: DELETE WHERE source_file = '1_main_chunk_4.xml' then append
-    # source_file: F.lit("1_main_chunk_4.xml") — exact literal
     {
         "name"             : "Chunk 4 — XML / PySpark Native",
         "src"              : f"{CHUNKS_PATH}/1_main_chunk_4.xml",
         "table"            : "listings_xml_pyspark",
         "fmt"              : "xml",
         "opts"             : {"rowTag": "record"},
-        "null_exclude_col" : "id",          # filter(id IS NOT NULL) before write
+        "null_exclude_col" : "id",          
         "has_id"           : True,
         "source_file_value": "1_main_chunk_4.xml",
         "expected_cols"    : [
@@ -163,14 +142,11 @@ REGISTRY = [
             "id","engine","power","gear","probeg","sWheel","complectation",
             "transmission","R","G","B",
         ],
-        "id_null_guaranteed_zero": True,    # filter before write
+        "id_null_guaranteed_zero": True,    
         "idempotency_note" : "DELETE WHERE source_file=FILE_NAME + append",
     },
 
     # ── 07: Text descriptions ──────────────────────────────────────────────────
-    # Pipeline : 07_remaining_4_files.py
-    # Method   : DLT cloudFiles CSV, multiLine=true, escape/quote for Russian text
-    # Null-id  : @dlt.expect('valid_id') — warn-only, nulls kept
     {
         "name"             : "Landing — Text Descriptions",
         "src"              : f"{LANDING_PATH}/1_text.csv",
@@ -186,9 +162,6 @@ REGISTRY = [
     },
 
     # ── 07: Photo URLs ─────────────────────────────────────────────────────────
-    # Pipeline : 07_remaining_4_files.py
-    # _c0      : unnamed pandas index — Spark names it _c0 when header=true
-    # Null-id  : @dlt.expect('valid_id') — warn-only
     {
         "name"             : "Landing — Photo URLs",
         "src"              : f"{LANDING_PATH}/1_photo.csv",
@@ -204,10 +177,6 @@ REGISTRY = [
     },
 
     # ── 07: Car catalog ────────────────────────────────────────────────────────
-    # Pipeline : 07_remaining_4_files.py
-    # sep=;    : semicolon-delimited
-    # Columns  : 19 Cyrillic column names (requires delta.columnMapping.mode=name)
-    # No id    : catalog has no listing id column
     {
         "name"             : "Landing — Car Catalog",
         "src"              : f"{LANDING_PATH}/catalogs.csv",
@@ -230,10 +199,6 @@ REGISTRY = [
     },
 
     # ── 07: Geo locations ──────────────────────────────────────────────────────
-    # Pipeline : 07_remaining_4_files.py
-    # _c0      : unnamed pandas index (same as listings_photo)
-    # lat/lon  : kept as STRING in Bronze — cast to DOUBLE in Silver
-    # No id    : no listing id column
     {
         "name"             : "Landing — Geo Locations",
         "src"              : f"{LANDING_PATH}/final_geografic.csv",
@@ -271,13 +236,6 @@ print(f"Registry: {len(REGISTRY)} tables | "
 # COMMAND ----------
 
 def read_source(spark, entry: dict):
-    """
-    Reads the source file from Volume using the registry fmt/opts.
-    If null_exclude_col is set, drops rows where that column is null —
-    mirroring exactly what the pipeline does before writing to Bronze.
-
-    Returns (DataFrame, exclusion_note_or_None).
-    """
     df = (
         spark.read
         .format(entry["fmt"])
@@ -294,14 +252,6 @@ def read_source(spark, entry: dict):
 
 
 def row_hash(df, cols: list):
-    """
-    Computes a SHA-256 row fingerprint over the specified columns.
-    Nulls are coerced to '' and values are trimmed before hashing so
-    both source and Bronze normalise identically regardless of whitespace
-    or null representation differences.
-
-    Returns a DataFrame with a single 'row_hash' STRING column.
-    """
     normalised = df.select([
         F.coalesce(F.trim(F.col(c).cast("string")), F.lit("")).alias(c)
         for c in cols
@@ -321,10 +271,6 @@ def row_hash(df, cols: list):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u1_table_exists(spark, entry):
-    """
-    U1 — Bronze table must exist in the catalog.
-    Fails if the ingestion pipeline never ran or the table was dropped.
-    """
     assert spark.catalog.tableExists(B(entry["table"])), (
         f"[{entry['table']}] Table not found: {B(entry['table'])}. "
         f"Run ingestion pipeline ({entry.get('name','?')}) first."
@@ -333,10 +279,6 @@ def test_u1_table_exists(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u1_table_non_empty(spark, entry):
-    """
-    U1 — Bronze table must contain at least one row.
-    An empty table means the pipeline ran but wrote nothing.
-    """
     count = spark.read.table(B(entry["table"])).count()
     assert count > 0, (
         f"[{entry['table']}] Table is empty after ingestion."
@@ -345,20 +287,6 @@ def test_u1_table_non_empty(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u1_all_expected_columns_present(spark, entry):
-    """
-    U1 — Every column declared in the pipeline DDL must exist in Bronze.
-
-    Source of truth per pipeline:
-      listings_csv_copyinto    : CREATE TABLE DDL in 03_bronze_csv_copyinto.py
-      listings_csv_dlt         : StructType in 06_bronze_dlt.py
-      listings_json_autoloader : BRONZE_SCHEMA_DDL string in 04_bronze_auto_loader.py
-      listings_xml_pyspark     : StructType in 05_bronze_xml_pyspark.py
-      listings_text/photo/geo  : StructType in 07_remaining_4_files.py
-      car_catalog              : StructType (Cyrillic) in 07_remaining_4_files.py
-
-    A missing column means the schema was altered after table creation
-    or the pipeline wrote with a wrong DDL.
-    """
     actual  = spark.read.table(B(entry["table"])).columns
     missing = [c for c in entry["expected_cols"] if c not in actual]
     assert missing == [], (
@@ -369,17 +297,8 @@ def test_u1_all_expected_columns_present(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u1_all_data_columns_are_string_type(spark, entry):
-    """
-    U1 — All raw data columns must be STRING type.
-
-    Every pipeline uses inferSchema=false and explicit STRING DDL.
-    A non-STRING data column means schema inference was accidentally enabled.
-
-    Excludes audit columns (load_dt=TIMESTAMP, source_file=STRING) — these
-    are intentionally typed differently from the raw data columns.
-    """
     dtypes     = dict(spark.read.table(B(entry["table"])).dtypes)
-    audit_cols = {"load_dt", "source_file", "_rescued_data", "_c0"}  # _c0 OK as string too
+    audit_cols = {"load_dt", "source_file", "_rescued_data", "_c0"}  
     non_string = [
         c for c in entry["expected_cols"]
         if c in dtypes and dtypes[c] != "string" and c not in audit_cols
@@ -393,13 +312,6 @@ def test_u1_all_data_columns_are_string_type(spark, entry):
 
 @pytest.mark.parametrize("entry", LISTING_PARAMS)
 def test_u1_listing_id_is_string_not_numeric(spark, entry):
-    """
-    U1 — The 'id' column in the 4 listing tables must be STRING, not INT/LONG/DOUBLE.
-
-    All 4 listing pipelines (03,04,05,06) use inferSchema=false so 'id' must
-    remain as STRING in Bronze. Silver casts it with try_cast(id as long).
-    If Bronze already contains a numeric type, inferSchema was accidentally enabled.
-    """
     dtypes = dict(spark.read.table(B(entry["table"])).dtypes)
     assert dtypes.get("id") == "string", (
         f"[{entry['table']}] 'id' column type is '{dtypes.get('id')}', expected 'string'. "
@@ -418,10 +330,6 @@ def test_u1_listing_id_is_string_not_numeric(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_audit_columns_present(spark, entry):
-    """
-    U2 — load_dt and source_file must exist in every Bronze table schema.
-    All pipelines (03–07) explicitly add both columns.
-    """
     cols    = spark.read.table(B(entry["table"])).columns
     missing = [c for c in ("load_dt", "source_file") if c not in cols]
     assert missing == [], (
@@ -431,11 +339,6 @@ def test_u2_audit_columns_present(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_audit_columns_non_null(spark, entry):
-    """
-    U2 — load_dt and source_file must have zero NULL values in every row.
-    All pipelines assign these explicitly on every row written.
-    A NULL indicates a pipeline defect or a partial write.
-    """
     df = spark.read.table(B(entry["table"]))
     for col in ("load_dt", "source_file"):
         if col in df.columns:
@@ -448,12 +351,6 @@ def test_u2_audit_columns_non_null(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_load_dt_is_timestamp_type(spark, entry):
-    """
-    U2 — load_dt must be TIMESTAMP, not string or date.
-
-    03: CREATE TABLE DDL defines load_dt TIMESTAMP.
-    04,05,06,07: Spark infers TIMESTAMP from current_timestamp() automatically.
-    """
     dtypes = dict(spark.read.table(B(entry["table"])).dtypes)
     if "load_dt" in dtypes:
         assert dtypes["load_dt"].startswith("timestamp"), (
@@ -464,10 +361,6 @@ def test_u2_load_dt_is_timestamp_type(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_source_file_is_string_type(spark, entry):
-    """
-    U2 — source_file must be STRING type.
-    All pipelines use F.lit(FILE_NAME) or _metadata.file_path (both produce STRING).
-    """
     dtypes = dict(spark.read.table(B(entry["table"])).dtypes)
     if "source_file" in dtypes:
         assert dtypes["source_file"] == "string", (
@@ -477,18 +370,6 @@ def test_u2_source_file_is_string_type(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_source_file_contains_expected_filename(spark, entry):
-    """
-    U2 — source_file values must contain the expected origin filename.
-
-    03: COPY INTO uses the FILE_NAME widget literal -> '1_main_chunk_1.csv'
-    04: Auto Loader uses _metadata.file_path -> full volume path containing '1_main_chunk_3.json'
-    05: F.lit('1_main_chunk_4.xml') -> exact match
-    06: F.lit('1_main_chunk_2.csv') -> exact match
-    07: F.lit per table -> exact match
-
-    Uses 'in' check so it works for both bare filenames (05,06,07)
-    and full paths (04 _metadata.file_path).
-    """
     expected = entry["source_file_value"]
     files    = [
         r["source_file"]
@@ -503,10 +384,6 @@ def test_u2_source_file_contains_expected_filename(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_u2_source_file_not_empty_string(spark, entry):
-    """
-    U2 — source_file must not be an empty or whitespace-only string.
-    An empty source_file means the audit assignment was bypassed.
-    """
     df = spark.read.table(B(entry["table"]))
     if "source_file" in df.columns:
         bad = df.filter(F.trim(F.col("source_file")) == "").count()
@@ -529,15 +406,6 @@ def test_u2_source_file_not_empty_string(spark, entry):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_u3_copyinto_null_id_purge_complete(spark):
-    """
-    U3 [listings_csv_copyinto] — Zero null-id rows must remain in Bronze.
-
-    Pipeline Step 4 runs: DELETE FROM listings_csv_copyinto WHERE id IS NULL
-    This permanently removes rows that COPY INTO loaded in PERMISSIVE mode
-    where the CSV 'id' column was empty or malformed.
-
-    If null-id rows remain, Step 4 did not execute or was skipped.
-    """
     null_rows = (
         spark.read.table(B("listings_csv_copyinto"))
         .filter(F.col("id").isNull())
@@ -550,14 +418,6 @@ def test_u3_copyinto_null_id_purge_complete(spark):
 
 
 def test_u3_copyinto_no_duplicate_ids(spark):
-    """
-    U3 [listings_csv_copyinto] — id column must be unique (no duplicates).
-
-    COPY INTO force=false tracks ingested files so re-runs skip already-loaded files.
-    The missing-row repair in Step 5 uses anti-join on id before appending,
-    so it cannot create duplicates.
-    Duplicates would indicate force=true was used or the repair logic was bypassed.
-    """
     df    = spark.read.table(B("listings_csv_copyinto")).filter(F.col("id").isNotNull())
     total = df.count()
     uniq  = df.select("id").distinct().count()
@@ -573,14 +433,6 @@ def test_u3_copyinto_no_duplicate_ids(spark):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_u3_json_foreachbatch_null_id_guard(spark):
-    """
-    U3 [listings_json_autoloader] — Zero null-id rows must exist in Bronze.
-
-    Pipeline upsert_to_bronze() Step C:
-        micro_batch_df = micro_batch_df.filter(F.col('id').isNotNull())
-    This drops null-id rows before the MERGE executes.
-    Null-id rows in Bronze mean the guard was removed or bypassed.
-    """
     null_rows = (
         spark.read.table(B("listings_json_autoloader"))
         .filter(F.col("id").isNull())
@@ -593,30 +445,6 @@ def test_u3_json_foreachbatch_null_id_guard(spark):
 
 
 def test_u3_json_merge_idempotency_no_duplicate_ids(spark):
-    """
-    U3 [listings_json_autoloader] — Pipeline must not introduce NEW duplicate ids.
-
-    Root cause of the 14 existing duplicates (confirmed by analysis):
-      The source JSON file itself contains 14 rows with duplicate ids
-      (same listing posted twice in the source data).
-      On first run, the pipeline uses mode('overwrite') because the table
-      doesn't exist yet — this writes all source rows as-is, including source
-      duplicates. The MERGE path only applies on re-runs.
-      The MERGE (whenNotMatchedInsertAll) cannot retroactively remove duplicates
-      that were written on the first run.
-
-    What this test asserts:
-      Bronze duplicates must NOT exceed source duplicates.
-      If Bronze has MORE dups than source, the pipeline introduced new ones
-      (broken MERGE, double-append, or wrong overwrite on re-run).
-      If Bronze has the SAME dups as source, all duplicates are source-originated
-      and the pipeline behaved correctly.
-
-    Separation of concerns:
-      Source data quality (duplicate ids in JSON) → Silver layer's responsibility
-      to deduplicate via dropDuplicates(['listing_id']).
-      Pipeline integrity (no new duplicates introduced) → this test's responsibility.
-    """
     CHUNKS_PATH = f"/Volumes/{CONFIG['catalog']}/{CONFIG['raw']}/chunks"
 
     # Count duplicate ids in source JSON
@@ -660,17 +488,6 @@ def test_u3_json_merge_idempotency_no_duplicate_ids(spark):
 
 
 def test_u3_json_rescued_data_absent_or_null(spark):
-    """
-    U3 [listings_json_autoloader] — _rescued_data must not exist or be all NULL.
-
-    Pipeline Step B in upsert_to_bronze():
-        if '_rescued_data' in micro_batch_df.columns:
-            micro_batch_df = micro_batch_df.drop('_rescued_data')
-    Auto Loader adds _rescued_data when a JSON field does not fit the schema.
-    The pipeline drops it in foreachBatch.
-    A non-null _rescued_data value means schema mismatch occurred and the drop
-    did not execute (e.g. first write used overwrite before MERGE branch).
-    """
     df = spark.read.table(B("listings_json_autoloader"))
     if "_rescued_data" in df.columns:
         rescued = df.filter(F.col("_rescued_data").isNotNull()).count()
@@ -686,12 +503,6 @@ def test_u3_json_rescued_data_absent_or_null(spark):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_u3_xml_null_id_filter_applied(spark):
-    """
-    U3 [listings_xml_pyspark] — Zero null-id rows must exist in Bronze.
-
-    Pipeline applies: df_clean = df_xml.filter(F.col('id').isNotNull())
-    before writing. Null-id rows in Bronze mean the filter was removed.
-    """
     null_rows = (
         spark.read.table(B("listings_xml_pyspark"))
         .filter(F.col("id").isNull())
@@ -704,15 +515,6 @@ def test_u3_xml_null_id_filter_applied(spark):
 
 
 def test_u3_xml_idempotency_single_source_file(spark):
-    """
-    U3 [listings_xml_pyspark] — All Bronze rows must have source_file = '1_main_chunk_4.xml'.
-
-    Pipeline idempotency:
-        DELETE FROM listings_xml_pyspark WHERE source_file = '1_main_chunk_4.xml'
-        then append
-    If multiple distinct source_file values exist, the DELETE did not remove
-    all previous rows and stale data from an earlier run remains.
-    """
     files = [
         r["source_file"]
         for r in spark.read.table(B("listings_xml_pyspark"))
@@ -730,13 +532,6 @@ def test_u3_xml_idempotency_single_source_file(spark):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def test_u3_catalog_cyrillic_columns_present(spark):
-    """
-    U3 [car_catalog] — All 19 Cyrillic column names must be present in Bronze.
-
-    Pipeline 07 uses delta.columnMapping.mode=name (table property) which
-    allows Delta to store Cyrillic characters in column names.
-    If Cyrillic columns are missing, columnMapping was not applied correctly.
-    """
     required = ["Марка", "Модель", "Тип топлива", "Коробка передач",
                 "Привод", "Страна сборки", "Тип кузова"]
     cols     = spark.read.table(B("car_catalog")).columns
@@ -748,17 +543,6 @@ def test_u3_catalog_cyrillic_columns_present(spark):
 
 
 def test_u3_geo_lat_lon_are_string_in_bronze(spark):
-    """
-    U3 [geo_locations] — lat and lon must be STRING type in Bronze.
-
-    Pipeline 07 SCHEMA_GEO defines lat and lon as StringType():
-        StructField('lat', StringType(), True)
-        StructField('lon', StringType(), True)
-    inferSchema=false enforces this.
-    Silver (_transform_geo) casts them to DOUBLE with .cast('double').
-    If lat/lon are already DOUBLE in Bronze, inferSchema was accidentally
-    enabled and Silver's cast becomes a no-op.
-    """
     dtypes = dict(spark.read.table(B("geo_locations")).dtypes)
     for col in ("lat", "lon"):
         if col in dtypes:
@@ -769,15 +553,6 @@ def test_u3_geo_lat_lon_are_string_in_bronze(spark):
 
 
 def test_u3_photo_c0_index_column_present(spark):
-    """
-    U3 [listings_photo] — _c0 column must be present in Bronze.
-
-    The source CSV 1_photo.csv was generated from a pandas DataFrame and
-    contains an unnamed index column. Spark names it '_c0' when header=true.
-    Pipeline 07 SCHEMA_PHOTO explicitly includes:
-        StructField('_c0', StringType(), True)
-    If _c0 is missing, the schema was changed without updating the file handling.
-    """
     cols = spark.read.table(B("listings_photo")).columns
     assert "_c0" in cols, (
         "listings_photo is missing the '_c0' column. "
@@ -786,14 +561,6 @@ def test_u3_photo_c0_index_column_present(spark):
 
 
 def test_u3_text_multiline_not_truncated(spark):
-    """
-    U3 [listings_text] — Average text column length must exceed 20 characters.
-
-    Pipeline 07 uses multiLine=true for Russian car descriptions that span
-    multiple CSV lines. If multiLine is disabled, text is truncated at the
-    first newline inside a description.
-    Average length below 20 chars is a strong signal of truncation.
-    """
     df = spark.read.table(B("listings_text")).filter(F.col("text").isNotNull())
     if df.count() == 0:
         pytest.skip("listings_text has no non-null text rows — skipping length check.")
@@ -814,17 +581,6 @@ def test_u3_text_multiline_not_truncated(spark):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_r1_row_count_source_equals_bronze(spark, entry):
-    """
-    R1 — Source row count must exactly match Bronze row count.
-
-    Exclusion logic is applied to the source before counting to mirror
-    exactly what the pipeline does. See registry null_exclude_col.
-
-    A non-zero gap means:
-      Positive gap (src > bronze): rows were silently dropped during ingestion
-      Negative gap (src < bronze): rows were invented (inflation)
-    Both are failures.
-    """
     df_src, excl_note = read_source(spark, entry)
     src_count    = df_src.count()
     bronze_count = spark.read.table(B(entry["table"])).count()
@@ -839,16 +595,6 @@ def test_r1_row_count_source_equals_bronze(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_r1_bronze_not_inflated_beyond_source(spark, entry):
-    """
-    R1 — Bronze must not contain MORE rows than the source.
-
-    Inflation means the pipeline inserted rows that have no origin in the source.
-    Possible causes:
-      - COPY INTO force=true run twice
-      - XML DELETE+append ran twice without DELETE completing
-      - MERGE matched on wrong columns and inserted duplicates
-      - Missing-row repair (03) inserted wrong rows
-    """
     df_src, excl_note = read_source(spark, entry)
     src_count    = df_src.count()
     bronze_count = spark.read.table(B(entry["table"])).count()
@@ -872,22 +618,6 @@ def test_r1_bronze_not_inflated_beyond_source(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_r2_every_source_row_fingerprint_in_bronze(spark, entry):
-    """
-    R2 — Every source row SHA-256 fingerprint must exist in Bronze.
-
-    Uses subtract():
-        source_hashes MINUS bronze_hashes = rows in source but absent from Bronze
-
-    If the result is non-empty, those source rows were either:
-      (a) dropped during ingestion
-      (b) corrupted — a value changed so the hash no longer matches
-
-    Audit columns (load_dt, source_file, _rescued_data) are excluded from the
-    hash because they do not exist in the source file and would always differ.
-
-    The same null_exclude_col logic as R1 is applied to avoid false positives
-    from rows the pipeline legitimately removes.
-    """
     df_src, excl_note = read_source(spark, entry)
     df_brz      = spark.read.table(B(entry["table"]))
     audit_cols  = {"load_dt", "source_file", "_rescued_data"}
@@ -925,21 +655,6 @@ def test_r2_every_source_row_fingerprint_in_bronze(spark, entry):
 
 @pytest.mark.parametrize("entry", ALL_PARAMS)
 def test_r3_no_bronze_row_absent_from_source(spark, entry):
-    """
-    R3 — No Bronze row fingerprint must be absent from the source file.
-
-    Uses subtract():
-        bronze_hashes MINUS source_hashes = rows in Bronze with no source origin
-
-    If the result is non-empty, those Bronze rows were invented by the pipeline.
-    Possible causes:
-      - Missing-row repair (03) inserted wrong rows
-      - MERGE (04) matched on wrong condition and created phantom rows
-      - XML DELETE+append (05) left rows from a different source file
-      - A different source file was accidentally ingested into the same table
-
-    The same null_exclude_col and audit column exclusions apply as in R2.
-    """
     df_src, excl_note = read_source(spark, entry)
     df_brz      = spark.read.table(B(entry["table"]))
     audit_cols  = {"load_dt", "source_file", "_rescued_data"}

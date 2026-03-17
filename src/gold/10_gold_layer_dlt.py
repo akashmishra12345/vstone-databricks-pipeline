@@ -1,19 +1,7 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # 10 -- Gold Layer DLT Pipeline
-# MAGIC
-# MAGIC Kimball star schema built from Silver tables.
-# MAGIC
-# MAGIC | Table | Type | PK | Source |
-# MAGIC |-------|------|----|--------|
-# MAGIC | `dim_date` | Static | `date_key` DATE | Generated 2010-2030 |
-# MAGIC | `dim_price_category` | Static lookup | `price_category_key` INT | Hardcoded 5 bands |
-# MAGIC | `dim_steering` | Static lookup | `steering_key` INT | `listings_silver_merged.steering_wheel` |
-# MAGIC | `dim_car` | SCD2 | `car_sk` INT (CRC32) | `car_catalog_transformation` |
-# MAGIC | `dim_location` | SCD2 | `location_sk` INT (CRC32) | `geography_transformation` |
-# MAGIC | `dim_listing_details` | SCD2 | `listing_id` STRING | `listings_text_transformation` |
-# MAGIC | `dim_listing_photos` | SCD2 | `listing_id+photo_url_clean` | `listings_photo_transformation` |
-# MAGIC | `fact_listings` | Fact | `listing_id` STRING (degenerate dim) | `listings_silver_merged` + joins |
+# MAGIC star schema built from Silver tables.
 
 # COMMAND ----------
 
@@ -65,7 +53,7 @@ print("Surrogate key helpers: _car_sk | _location_sk")
 @dlt.table(
     name             = "dim_date",
     comment          = "Gold Static: Gap-free calendar dimension 2010-2030. "
-                       "No SCD -- calendar never changes. "
+                       "No SCD -- calendar never changes. " 
                        "PK: date_key (DATE). "
                        "FK target: fact_listings.listing_date -> dim_date.date_key.",
     table_properties = {**GOLD_PROPS, "type": "static", "pk": "date_key"},
@@ -247,8 +235,7 @@ def dim_listing_details_source():
     """
     Streaming view: adds text_hash for SCD2 change detection.
     MUST use spark.readStream -- apply_changes() requires streaming source.
-    listing_id stays STRING -- Silver produces STRING, no cast needed in Gold.
-    text_hash = md5(text) -- Vasu feedback: SCD2 needs a change-detection column.
+    text_hash = md5(text) -- : SCD2 needs a change-detection column.
     If text changes for the same listing_id, text_hash changes -> new SCD2 version.
     """
     return (
@@ -261,7 +248,7 @@ def dim_listing_details_source():
 dlt.create_streaming_table(
     name             = "dim_listing_details",
     comment          = "Gold SCD2: Russian listing text descriptions from listings_text_transformation. "
-                       "Natural PK: listing_id STRING (Silver produces STRING -- no cast in Gold). "
+                       "Natural PK: listing_id"
                        "Change-detection: text_hash (MD5 of text) -- Vasu feedback: SCD2 requires "
                        "a change column; text_hash triggers a new version when description changes. "
                        "SCD2: __START_AT / __END_AT. Active rows: __END_AT IS NULL.",
@@ -290,7 +277,6 @@ def dim_listing_photos_source():
     """
     Streaming view for listings_photo_transformation.
     MUST use spark.readStream -- apply_changes() requires streaming source.
-    listing_id stays STRING -- Silver produces STRING, no cast in Gold.
     Composite key: listing_id + photo_url_clean (one listing -> many photos).
     """
     return (
@@ -302,8 +288,8 @@ def dim_listing_photos_source():
 dlt.create_streaming_table(
     name             = "dim_listing_photos",
     comment          = "Gold SCD2: Photo URLs per listing from listings_photo_transformation. "
-                       "Composite PK: listing_id STRING + photo_url_clean STRING. "
-                       "listing_id stays STRING -- Silver produces STRING, no cast in Gold. "
+                       "Composite PK: listing_id  + photo_url_clean STRING. "
+                       "listing_id "
                        "One-to-many: one listing can have many photos. "
                        "photo_count denormalized into fact_listings via groupBy join. "
                        "SCD2: __START_AT / __END_AT. Active rows: __END_AT IS NULL.",
@@ -343,12 +329,12 @@ dlt.apply_changes(
     table_properties = {
         **GOLD_PROPS,
         "type"              : "fact",
-        "grain"             : "listing_id (STRING degenerate dimension)",
+        "grain"             : "listing_id ",
         "fk_date"           : "listing_date -> dim_date.date_key",
         "fk_car"            : "car_sk (INT) -> dim_car.car_sk",
         "fk_location"       : "location_sk (INT) -> dim_location.location_sk",
-        "fk_details"        : "listing_id (STRING) -> dim_listing_details.listing_id",
-        "fk_photos"         : "listing_id (STRING) -> dim_listing_photos (photo_count denorm)",
+        "fk_details"        : "listing_id  -> dim_listing_details.listing_id",
+        "fk_photos"         : "listing_id  -> dim_listing_photos (photo_count denorm)",
         "fk_price_category" : "price_category_key (INT) -> dim_price_category",
         "fk_steering"       : "steering_key (INT) -> dim_steering",
     },
@@ -365,7 +351,7 @@ def fact_listings():
         .agg(F.count("photo_url_clean").alias("photo_count"))
     )
 
-    # ── word_count: metric from Silver text table (Vasu: metrics belong in fact)
+    # ── word_count: metric from Silver text table 
    
     word_counts = (
         spark.table(f"{SILVER}.listings_text_transformation")
@@ -416,17 +402,17 @@ def fact_listings():
         .select(
             # ── Grain key (degenerate dimension) ──────────────────────────────
             
-            "listing_id",                           # STRING (degenerate dim)
+            "listing_id",                           
 
             # ── FK -> dim_date.date_key ───────────────────────────────────────
             "listing_date",                         # DATE
 
             # ── FK -> dim_car.car_sk (INT surrogate key) ─────────────────────
-            # Replaces brand and model strings in fact. brand/model stay in dim_car.
+            
             F.col("car_sk"),                        # INT
 
             # ── FK -> dim_location.location_sk (INT surrogate key) ────────────
-            # Replaces city_prepositional string in fact. City stays in dim_location.
+    
             F.col("location_sk"),                   # INT
 
             # ── FK -> dim_price_category.price_category_key (INT) ─────────────
@@ -435,7 +421,7 @@ def fact_listings():
             # ── FK -> dim_steering.steering_key (INT) ─────────────────────────
             F.col("steering_key"),                  # INT
 
-            # ── Numeric listing attributes (Silver-produced types, no cast) ───
+            # ── Numeric listing attributes  ───
             "manufacture_year",                     # INT 
             "engine_power",                         # INT
             "mileage_km",                           # INT
@@ -462,7 +448,7 @@ def fact_listings():
 
             # ── Denormalized count metrics ─────────────────────────────────────
             F.col("photo_count").cast("int"),       # INT (joined from photo table)
-            F.col("word_count").cast("int"),        # INT (Vasu: metric belongs in fact)
+            F.col("word_count").cast("int"),        # INT 
 
             # ── RGB colour codes ────────────
          

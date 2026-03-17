@@ -32,7 +32,6 @@ SILVER  = f"{CATALOG}.silver"
 G = lambda t: f"{GOLD}.{t}"
 S = lambda t: f"{SILVER}.{t}"
 
-# dim_date: 2010-01-01 to 2030-12-31 inclusive = 7670 days
 DIM_DATE_EXPECTED_ROWS = 7670
 
 # All Gold tables that must exist
@@ -139,7 +138,7 @@ def test_u1_fact_no_string_attribute_columns(spark):
 # MAGIC %md
 # MAGIC ## U2 -- Unit Tests: Fact Column Data Types
 # MAGIC
-# MAGIC All FK columns must be INT, color_r/g/b must be INT, listing_id must be STRING, listing_date must be DATE.
+# MAGIC All FK columns must be INT, color_r/g/b must be INT, listing_id must be bigint, listing_date must be DATE.
 
 # COMMAND ----------
 

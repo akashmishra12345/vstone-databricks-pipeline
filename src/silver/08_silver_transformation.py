@@ -113,7 +113,7 @@ CATALOG_COL_MAP = {
 
 
 def _build_listings_stream():
-    # Union 4 Bronze listing streams, reading as Delta streams with ignoreDeletes/ignoreChanges for append-only safety
+    # Union 4 Bronze listing streams, reading as Delta streams 
     def _bronze_stream(table):
         return (spark.readStream
                 .format("delta")
@@ -143,11 +143,11 @@ def _transform_listings(df):
         F.expr("try_cast(try_cast(year as double) as int)").alias("manufacture_year"),
         F.expr("try_cast(try_cast(power as double) as int)").alias("engine_power"),
         F.expr("try_cast(try_cast(probeg as double) as int)").alias("mileage_km"),
-        standardize_text(F.col("engine")).alias("fuel_type"),         # lower+strip — matches catalog normalisation
-        standardize_text(F.col("transmission")).alias("transmission_type"),  # lower+strip
-        standardize_text(F.col("gear")).alias("drive_type"),          # lower+strip
-        standardize_text(F.col("sWheel")).alias("steering_wheel"),    # lower+strip — enables reliable encoding in Gold
-        standardize_text(F.col("complectation")).alias("trim_level"), # lower+strip — matches catalog normalisation
+        standardize_text(F.col("engine")).alias("fuel_type"),         
+        standardize_text(F.col("transmission")).alias("transmission_type"),  
+        standardize_text(F.col("gear")).alias("drive_type"),          
+        standardize_text(F.col("sWheel")).alias("steering_wheel"),   
+        standardize_text(F.col("complectation")).alias("trim_level"), 
         F.col("place").alias("city_prepositional"),
         F.expr("try_cast(has_license as int)").alias("has_license"),
         F.expr("try_cast(R as int)").alias("color_r"),    # INT 0-255 
@@ -308,11 +308,6 @@ def listings_photo_quarantine():
 # COMMAND ----------
 
 def _transform_catalog(df):
-    """
-    Rename 19 Cyrillic columns → English via CATALOG_COL_MAP (Deliverable 3).
-    Parse numeric columns stripping Russian unit suffixes.
-    Apply clean_text UDF to all string columns.
-    """
     for ru, en in CATALOG_COL_MAP.items():
         if ru in df.columns:
             df = df.withColumnRenamed(ru, en)
@@ -328,9 +323,6 @@ def _transform_catalog(df):
     for c in ["brand", "model", "generation", "trim_level", "body_type"]:
         if c in df.columns:
             df = df.withColumn(c, clean_text(F.col(c)))
-    # Join key columns: lower+strip so they match listings_silver_merged normalisation.
-    # _transform_listings applies standardize_text to fuel_type, transmission, drive_type.
-    # Using clean_text here would produce case mismatches on any listing-catalog join.
     for c in ["fuel_type", "transmission", "drive_type"]:
         if c in df.columns:
             df = df.withColumn(c, standardize_text(F.col(c)))
@@ -351,10 +343,10 @@ def car_catalog():
     # Helper call and stream reading
     df = _transform_catalog(spark.readStream.format("delta").table(f"{CATALOG}.{BRONZE}.car_catalog"))
     
-    # Corrected return statement: No trailing words outside brackets
+    
     return (df
         .dropDuplicates(["brand", "model", "generation", "trim_level", "engine_volume_l", "engine_power_hp"])
-        .filter(F.col("brand").isNotNull())) # Bracket closed correctly here
+        .filter(F.col("brand").isNotNull())) 
 
 @dlt.table(
     name             = "car_catalog_quarantine",

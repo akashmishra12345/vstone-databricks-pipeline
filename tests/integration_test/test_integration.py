@@ -9,7 +9,7 @@
 # MAGIC | **IT1** | Bronze → Gold | Every valid Bronze `listing_id` reaches `fact_listings` |
 # MAGIC | **IT2** | Bronze → Gold | Audit chain (`source_file` + timestamps) is unbroken |
 # MAGIC | **IT3** | Bronze → Silver → Gold | Row counts consistent and explainable across all layers |
-# MAGIC | **IT4** | Silver ↔ Gold | JOIN fact + dims reconstructs Silver exactly (Vasu requirement) |
+# MAGIC | **IT4** | Silver ↔ Gold | JOIN fact + dims reconstructs Silver exactly |
 # MAGIC | **IT5** | Bronze → Gold | `price_rub` and `price_usd` are correct end-to-end |
 # MAGIC | **IT6** | Gold dims ↔ Gold aggs | Aggregate brands/cities trace to active dim rows |
 # MAGIC
@@ -64,15 +64,7 @@ def _bronze_listings(spark):
 
 # ── Shared helper: apply Silver _transform_listings to Bronze ─────────────────
 def _transform_bronze(df):
-    """
-    Apply the same transforms as Silver _transform_listings to Bronze data.
-
-    Key difference from the pipeline:
-      Pipeline uses F.to_timestamp() inside DLT streaming -- Spark streaming
-      silently returns NULL for unparseable dates.
-      Tests run in batch context where F.to_timestamp() throws CANNOT_PARSE_TIMESTAMP.
-      Fix: use try_to_timestamp() which always returns NULL on bad input (never throws).
-    """
+    
     return df.select(
         F.expr("try_cast(id as long)").cast("string").alias("listing_id"),
         F.expr("try_cast(regexp_replace(cost, '[^0-9.]', '') as double)").alias("price_rub"),
@@ -230,8 +222,8 @@ def test_it4_fact_plus_dims_reconstructs_silver(spark):
         "listing_id", "listing_date", "manufacture_year", "engine_power",
         "mileage_km", "has_license", "listing_year", "listing_month",
         "car_age_years", "price_rub", "price_usd",
-        "price_category",   # decoded via dim_price_category
-        "steering_wheel",   # decoded via dim_steering
+        "price_category",   
+        "steering_wheel",
     ]
 
     reconstructed = (
