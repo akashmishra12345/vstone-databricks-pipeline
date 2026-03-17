@@ -12,7 +12,7 @@
 # MAGIC | Unit | U6 - Quarantine Hygiene | 3 | quarantine_reason + quarantine_dt non-null, Silver and Quarantine disjoint |
 # MAGIC | Unit | U7 - Derived Columns | 12 | price_usd, car_age_years, price_category, brand_std, colors 0-255, fuel lowercase |
 # MAGIC | Reconciliation | R1 - Exact Count | 1 | Silver + Quarantine == exact deduplicated Bronze count |
-# MAGIC | Reconciliation | R2 - Silver subset of Bronze (forward) | 1 | Every Silver PK exists in Bronze (left_anti join) |
+# MAGIC | Reconciliation | R2 - Silver subset of Bronze (forward) | 1 | Every Silver PK exists in Bronze |
 # MAGIC | Reconciliation | R3 - Silver to Bronze row integrity (reverse) | 1 | Every Silver row traces back to a Bronze row (SHA-256 fingerprint) 
 
 # COMMAND ----------
@@ -847,7 +847,6 @@ def test_r1_exact_count_reconciliation(spark, entry):
 def test_r2_every_silver_pk_exists_in_bronze(spark, entry):
 
     if entry.get("r2_catalog_sql"):
-        # ── car_catalog: SQL path to avoid gRPC plan size limit ───────────────
         silver_table = entry["silver"]
         bronze_table = entry["bronze_sources"][0]
 
