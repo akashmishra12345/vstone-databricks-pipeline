@@ -177,9 +177,7 @@ dlt.apply_changes(
     keys               = ["brand", "model"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
-    tracked_columns    = ["brand", "model", "generation",
-                          "trim_level", "fuel_type",
-                          "transmission", "drive_type"],
+    except_column_list = ["bronze_load_dt", "bronze_source_file"],
 )
 
 # COMMAND ----------
@@ -222,8 +220,7 @@ dlt.apply_changes(
     keys               = ["city_prepositional"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
-    tracked_columns    = ["city_name", "city_prepositional",
-                          "latitude", "longitude"],
+    except_column_list = ["bronze_load_dt", "bronze_source_file"],
 )
 
 # COMMAND ----------
@@ -266,7 +263,7 @@ dlt.apply_changes(
     keys               = ["listing_id"],
     sequence_by        = "silver_load_dt",
     stored_as_scd_type = 2,
-    tracked_columns    = ["text", "text_hash"],
+    except_column_list = ["bronze_load_dt", "bronze_source_file"],
 )
 
 # COMMAND ----------
@@ -404,7 +401,7 @@ def fact_listings():
         .withColumn("listing_date", F.col("listing_date").cast("date"))
 
         .select(
-            # ── Grain key (degenerate dimension) ──────────────────────────────
+            # ── Grain key  ──────────────────────────────
             
             "listing_id",                           
 

@@ -175,8 +175,6 @@ def test_it2_audit_timestamps_ordered(spark):
 
 # MAGIC %md
 # MAGIC ## IT3 — Row Count Consistency: Bronze → Silver → Gold
-# MAGIC
-# MAGIC `Bronze raw ≥ Silver (deduplicated + filtered) == Gold fact` — exact equality, zero tolerance.
 
 # COMMAND ----------
 
