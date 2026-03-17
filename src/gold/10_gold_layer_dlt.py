@@ -321,8 +321,6 @@ dlt.apply_changes(
 @dlt.table(
     name             = "fact_listings",
     comment          = "Gold Fact Table: Car listings -- Kimball star schema. "
-                       "GRAIN: one row per listing_id (STRING degenerate dimension). "
-                       "NO STRINGS except listing_id per Vasu Bajaj design rules. "
                        "INTEGER FKs: car_sk->dim_car, location_sk->dim_location, "
                        "price_category_key->dim_price_category, steering_key->dim_steering. "
                        "DATE FK: listing_date->dim_date.date_key. "
@@ -330,7 +328,7 @@ dlt.apply_changes(
                        "color_r/g/b: Silver try_cast(R as int) -> INT. No cast in Gold. "
                        "MEASURES: price_rub, price_usd, mileage_km, engine_power, "
                        "car_age_at_listing, is_high_mileage, price_per_hp_usd, "
-                       "photo_count, word_count (metric moved from dim per Vasu). "
+                       "photo_count, word_count  "
                        "AUDIT: bronze_load_dt -> silver_load_dt -> gold_load_dt.",
     table_properties = {
         **GOLD_PROPS,
